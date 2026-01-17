@@ -12,10 +12,8 @@ def compress(text: str) -> str:
             json={"model": "bear-1", "text": text},
             timeout=10
         )
-
         data = r.json()
         return data.get("compressed_text", text)
-
     except Exception as e:
         print("Compression failed:", e)
         return text
@@ -49,7 +47,6 @@ def explain(event_text: str) -> str:
             return "LLM unavailable, but event detected successfully."
 
         return data["choices"][0]["message"]["content"]
-
     except Exception as e:
         print("LLM call failed:", e)
         return "LLM unavailable, but event detected successfully."
