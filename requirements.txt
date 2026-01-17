@@ -1,0 +1,21 @@
+fastapi
+uvicorn
+streamlit
+requests
+python-dotenv
+pydantic
+websockets
+
+# AI / ML
+torch
+opencv-python
+numpy
+
+# Voice
+livekit-agents
+
+# LLM
+openai
+
+# Dev utilities
+rich

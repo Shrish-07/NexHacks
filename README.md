@@ -1,0 +1,40 @@
+# IntelliCare AI 🧠🏥
+
+AI-powered nursing monitoring dashboard with real-time event prioritization, compressed reasoning, and voice interaction.
+
+## Tracks
+- Healthcare
+- Dev Tools
+- LiveKit Sponsor
+- The Token Company Sponsor
+
+## What it does
+IntelliCare reduces nurse cognitive overload by:
+- Monitoring multiple rooms simultaneously
+- Auto-promoting critical events
+- Generating human-readable explanations
+- Allowing hands-free voice interaction
+- Using compression-first AI pipelines for efficiency
+
+## Token Company Integration
+All event reasoning is passed through bear-1 compression before LLM calls.
+Result:
+- ~50–60% fewer tokens
+- Faster response time
+- Lower inference cost
+
+Compression is core to the system, not cosmetic.
+
+## LiveKit Integration
+LiveKit powers the voice-first interface:
+- Nurses can ask: “What’s happening in Room 2?”
+- Agent responds verbally
+- Designed for hands-free clinical environments
+
+## Demo
+- Streamlit dashboard auto-generates events
+- Feed promotion + explanations
+- LiveKit agent responds to voice queries
+
+## Why it matters
+Nurses are overwhelmed. IntelliCare acts as an AI attention filter so humans only focus where care is needed most.
