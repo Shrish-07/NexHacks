@@ -1,10 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Activity, AlertTriangle, Video, HeartPulse, Shield, Wifi, Volume2 } from 'lucide-react';
+import { Activity, AlertTriangle, Video, HeartPulse, Shield, Wifi } from 'lucide-react';
 import FaultyTerminal from '../components/FaultyTerminal';
-import northWingFeed from '../../loop_vids/feed_north.mp4';
-import southWingFeed from '../../loop_vids/feed_south.mp4';
+import northWingFeed from '../../loop_vids/feed_north.png';
+import southWingFeed from '../../loop_vids/feed_south.png';
 import johnDoeFeed from '../../loop_vids/feed_john.mp4';
-import alertSound from '../assets/alert.mp3';
 
 type Patient = {
   patientId: string;
@@ -36,15 +35,10 @@ type LoopFeed = {
   roomNumber: string;
   status: string;
   src: string;
+  isImage?: boolean;
   patientCamera?: boolean;
   metrics: { label: string; value: string }[];
 };
-
-type AudioAlertJob = {
-  id: string;
-};
-
-type AudioStatus = 'idle' | 'fetching' | 'playing' | 'error';
 
 const NURSE_ID = 'NURSE_001';
 const DEFAULT_ICE_SERVERS: RTCIceServer[] = [
@@ -68,6 +62,7 @@ const LOOP_FEEDS: LoopFeed[] = [
     roomNumber: '305',
     status: 'Neuro cam · calibrated',
     src: johnDoeFeed,
+    isImage: false,
     patientCamera: false,
     metrics: [
       { label: 'Vitals Mirror', value: 'Synced' },
@@ -80,6 +75,7 @@ const LOOP_FEEDS: LoopFeed[] = [
     roomNumber: '42B',
     status: 'Neuro obs · calm',
     src: northWingFeed,
+    isImage: true,
     patientCamera: true,
     metrics: [
       { label: 'O₂ Sat', value: '98%' },
@@ -92,6 +88,7 @@ const LOOP_FEEDS: LoopFeed[] = [
     roomNumber: '17C',
     status: 'Resp support · steady',
     src: southWingFeed,
+    isImage: true,
     patientCamera: true,
     metrics: [
       { label: 'Breath Assist', value: '40% FiO₂' },
@@ -100,18 +97,12 @@ const LOOP_FEEDS: LoopFeed[] = [
   },
 ];
 
-const MAX_AUDIO_QUEUE = 5;
-const SILENT_AUDIO_DATA_URL =
-  'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAESsAACJWAAACABAAZGF0YQAAAAA=';
-
 export default function NurseDashboard() {
   const [patients, setPatients] = useState<Map<string, Patient>>(new Map());
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [focusedPatientId, setFocusedPatientId] = useState<string | null>(null);
   const [connectionState, setConnectionState] = useState<ConnectionState>('connecting');
   const [, setStreamVersion] = useState(0);
-  const [audioStatus, setAudioStatus] = useState<AudioStatus>('idle');
-  const [audioError, setAudioError] = useState<string | null>(null);
 
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimer = useRef<number | null>(null);
@@ -120,78 +111,10 @@ export default function NurseDashboard() {
   const remoteStreams = useRef(new Map<string, MediaStream>());
   const pendingRemoteCandidates = useRef(new Map<string, RTCIceCandidateInit[]>());
   const pendingOfferPatients = useRef(new Set<string>());
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-  const audioQueueRef = useRef<AudioAlertJob[]>([]);
-  const audioIsPlayingRef = useRef(false);
 
   const httpBase = useMemo(() => getHttpBase(), []);
   const wsUrl = useMemo(() => getWsUrl(httpBase), [httpBase]);
   const rtcConfig = useMemo(() => buildNurseRtcConfig(), []);
-  const playNextAudio = useCallback(async () => {
-    if (audioIsPlayingRef.current) {
-      return;
-    }
-    const nextJob = audioQueueRef.current.shift();
-    if (!nextJob) {
-      return;
-    }
-
-    try {
-      audioIsPlayingRef.current = true;
-      setAudioStatus('fetching');
-      const audioElement = audioRef.current;
-      if (!audioElement) {
-        throw new Error('Audio channel unavailable');
-      }
-
-      audioElement.src = alertSound;
-      audioElement.currentTime = 0;
-      audioElement.muted = false;
-      setAudioStatus('playing');
-      setAudioError(null);
-      await audioElement.play();
-    } catch (error) {
-      console.error('[NurseDashboard] Failed to play audio alert', error);
-      audioIsPlayingRef.current = false;
-      setAudioStatus('error');
-      setAudioError(error instanceof Error ? error.message : 'Unable to play audio alert');
-      window.setTimeout(() => {
-        playNextAudio();
-      }, 3000);
-    }
-  }, []);
-
-  const enqueueAudioAlert = useCallback(
-    (alert: Alert) => {
-      const queue = audioQueueRef.current;
-      if (queue.length >= MAX_AUDIO_QUEUE) {
-        queue.shift();
-      }
-      queue.push({ id: alert.id });
-      playNextAudio();
-    },
-    [playNextAudio]
-  );
-
-  const primeAudioPlayback = useCallback(async () => {
-    const audioElement = audioRef.current;
-    if (!audioElement) {
-      throw new Error('Audio channel unavailable');
-    }
-    audioElement.src = SILENT_AUDIO_DATA_URL;
-    audioElement.volume = 0;
-    audioElement.muted = true;
-    try {
-      await audioElement.play();
-    } finally {
-      audioElement.pause();
-      audioElement.currentTime = 0;
-      audioElement.volume = 1;
-      audioElement.muted = false;
-      audioElement.removeAttribute('src');
-      audioElement.load();
-    }
-  }, []);
 
   useEffect(() => {
     connectToBackend();
@@ -205,73 +128,6 @@ export default function NurseDashboard() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  useEffect(() => {
-    const audioElement = audioRef.current;
-    if (!audioElement) {
-      return;
-    }
-    audioElement.preload = 'auto';
-
-    const handleEnded = () => {
-      audioIsPlayingRef.current = false;
-      setAudioStatus('idle');
-      playNextAudio();
-    };
-
-    const handleError = () => {
-      audioIsPlayingRef.current = false;
-      setAudioStatus('error');
-      window.setTimeout(() => playNextAudio(), 3000);
-    };
-
-    audioElement.addEventListener('ended', handleEnded);
-    audioElement.addEventListener('error', handleError);
-
-    return () => {
-      audioElement.pause();
-      audioElement.removeEventListener('ended', handleEnded);
-      audioElement.removeEventListener('error', handleError);
-    };
-  }, [playNextAudio]);
-
-  useEffect(() => {
-    let cancelled = false;
-    let primed = false;
-
-    const attemptPrime = async () => {
-      try {
-        await primeAudioPlayback();
-        if (!cancelled) {
-          primed = true;
-          setAudioError(null);
-        }
-      } catch (error) {
-        console.warn('[NurseDashboard] Audio priming failed', error);
-        if (!cancelled) {
-          setAudioError('Click anywhere on the page to enable audio alerts.');
-        }
-      }
-    };
-
-    const handleUserGesture = () => {
-      if (primed || cancelled) {
-        return;
-      }
-      attemptPrime();
-    };
-
-    attemptPrime();
-
-    window.addEventListener('pointerdown', handleUserGesture);
-    window.addEventListener('keydown', handleUserGesture);
-
-    return () => {
-      cancelled = true;
-      window.removeEventListener('pointerdown', handleUserGesture);
-      window.removeEventListener('keydown', handleUserGesture);
-    };
-  }, [primeAudioPlayback]);
 
   const activeAlertPatients = useMemo(() => {
     return new Set(alerts.filter((alert) => !alert.acknowledged).map((alert) => alert.patientId));
@@ -389,7 +245,6 @@ export default function NurseDashboard() {
       case 'alert': {
         setAlerts((prev) => [data.alert, ...prev].slice(0, 50));
         setFocusedPatientId(data.alert.patientId);
-        enqueueAudioAlert(data.alert);
         break;
       }
       case 'alert_acknowledged': {
@@ -683,12 +538,8 @@ export default function NurseDashboard() {
     },
   ];
 
-  const audioStatusMessage = describeAudioStatus(audioStatus);
-
   return (
-    <>
-      <audio ref={audioRef} className="sr-only" aria-hidden="true" muted playsInline />
-      <div className="min-h-screen relative overflow-hidden bg-slate-950 text-white">
+    <div className="min-h-screen relative overflow-hidden bg-slate-950 text-white">
       <div
         className="fixed inset-0 -z-10 flex items-center justify-center pointer-events-none opacity-100"
         aria-hidden="true"
@@ -726,21 +577,7 @@ export default function NurseDashboard() {
               <h1 className="text-4xl md:text-5xl font-black">Monitoring Command Deck</h1>
             </div>
           </div>
-
-          <div className="flex flex-col items-end gap-3 w-full sm:w-auto">
-            <div className="flex flex-wrap items-center justify-end gap-4">
-              {renderConnectionBadge()}
-              <div className="relative overflow-hidden rounded-2xl border border-white/15 px-4 py-3 text-left backdrop-blur bg-white/5 text-slate-100">
-                <span className="text-[10px] uppercase tracking-[0.4em] text-slate-400">Audio Alerts</span>
-                <div className="mt-1 flex items-center gap-2 text-sm font-semibold">
-                  <Volume2 className="w-4 h-4" />
-                  <span>Auto narration</span>
-                </div>
-                <p className="mt-1 text-[11px] text-slate-300">{audioStatusMessage}</p>
-              </div>
-            </div>
-            {audioError && <p className="text-xs text-rose-200 text-right max-w-sm">{audioError}</p>}
-          </div>
+          {renderConnectionBadge()}
         </header>
 
         <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -885,15 +722,23 @@ export default function NurseDashboard() {
                       </div>
 
                       <div className="relative h-44 rounded-2xl border border-white/10 bg-black/40 overflow-hidden">
-                        <video
-                          className="w-full h-full object-cover"
-                          src={feed.src}
-                          muted
-                          playsInline
-                          loop
-                          autoPlay
-                          preload="auto"
-                        />
+                        {feed.isImage ? (
+                          <img
+                            className="w-full h-full object-cover"
+                            src={feed.src}
+                            alt={`${feed.patientName} feed`}
+                          />
+                        ) : (
+                          <video
+                            className="w-full h-full object-cover"
+                            src={feed.src}
+                            muted
+                            playsInline
+                            loop
+                            autoPlay
+                            preload="auto"
+                          />
+                        )}
                         <div className="absolute top-3 right-3 px-3 py-1 rounded-full text-[10px] font-semibold border border-white/10 bg-black/40 backdrop-blur text-white/80">
                           Live uplink
                         </div>
@@ -1044,22 +889,8 @@ export default function NurseDashboard() {
           </div>
         </div>
       )}
-      </div>
-    </>
+    </div>
   );
-}
-
-function describeAudioStatus(status: AudioStatus) {
-  switch (status) {
-    case 'playing':
-      return 'Announcing latest alert';
-    case 'fetching':
-      return 'Fetching ElevenLabs voice';
-    case 'error':
-      return 'Audio error · retrying';
-    default:
-      return 'Standing by for next alert';
-  }
 }
 
 function normalizeBaseUrl(url?: string | null) {
