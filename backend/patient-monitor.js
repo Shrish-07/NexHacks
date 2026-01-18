@@ -8,272 +8,128 @@ const app = express();
 const server = createServer(app);
 const wss = new WebSocketServer({ server });
 
-const PORT = Number(process.env.WEBSOCKET_PORT || process.env.PORT || 3000);
-const OVERSHOOT_API_URL = process.env.OVERSHOOT_API_URL || 'https://cluster1.overshoot.ai/api/v0.2';
-const MAX_ALERT_HISTORY = 200;
+const PORT = Number(process.env.PORT || 3000);
 
-app.use(cors({
-  origin: process.env.ALLOWED_ORIGINS?.split(',').map((origin) => origin.trim()) || '*',
-}));
+app.use(cors());
 app.use(express.json());
 
-const patientConnections = new Map();
-const nurseConnections = new Map();
-const alerts = [];
+const patients = new Map(); // patientId -> ws
+const nurses = new Map();   // nurseId -> ws
 
-const buildPatientPayload = (patient) => ({
-  patientId: patient.patientId,
-  patientName: patient.patientName,
-  roomNumber: patient.roomNumber,
-  status: patient.status,
-  connectedAt: patient.connectedAt,
-  lastHeartbeat: patient.lastHeartbeat,
-});
-
-function broadcastToNurses(message) {
-  const payload = JSON.stringify(message);
-
-  nurseConnections.forEach((socket) => {
-    if (socket.readyState === WebSocket.OPEN) {
-      socket.send(payload);
-    }
-  });
-}
-
-function pruneAlerts() {
-  if (alerts.length > MAX_ALERT_HISTORY) {
-    alerts.splice(0, alerts.length - MAX_ALERT_HISTORY);
+function send(ws, payload) {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify(payload));
   }
-}
-
-function sendToPatient(patientId, message) {
-  const patient = patientConnections.get(patientId);
-  if (!patient || patient.ws.readyState !== WebSocket.OPEN) {
-    return false;
-  }
-  patient.ws.send(JSON.stringify(message));
-  return true;
-}
-
-function sendToNurse(nurseId, message) {
-  const socket = nurseConnections.get(nurseId);
-  if (!socket || socket.readyState !== WebSocket.OPEN) {
-    return false;
-  }
-  socket.send(JSON.stringify(message));
-  return true;
 }
 
 wss.on('connection', (ws) => {
-  ws.on('message', (message) => {
+  ws.on('message', (msg) => {
     let data;
     try {
-      data = JSON.parse(message.toString());
-    } catch (error) {
-      console.error('[WebSocket] Invalid JSON payload', error);
+      data = JSON.parse(msg);
+    } catch {
       return;
     }
 
     switch (data.type) {
+
+      // ---------------- REGISTER ----------------
       case 'register_patient': {
-        const patient = {
-          ws,
-          patientId: data.patientId,
-          patientName: data.patientName,
-          roomNumber: data.roomNumber,
-          status: 'active',
-          connectedAt: new Date().toISOString(),
-          lastHeartbeat: new Date().toISOString(),
-        };
-
-        patientConnections.set(patient.patientId, patient);
-
-        broadcastToNurses({
-          type: 'patient_connected',
-          patient: buildPatientPayload(patient),
-        });
+        ws.role = 'patient';
+        ws.patientId = data.patientId;
+        patients.set(data.patientId, ws);
+        console.log('[WS] Patient registered', data.patientId);
         break;
       }
 
       case 'register_nurse': {
-        if (!data.nurseId) {
-          ws.send(
-            JSON.stringify({
-              type: 'error',
-              message: 'nurseId is required to register nurse connection',
-            })
-          );
-          return;
-        }
-
-        nurseConnections.set(data.nurseId, ws);
+        ws.role = 'nurse';
         ws.nurseId = data.nurseId;
+        nurses.set(data.nurseId, ws);
 
-        const patients = Array.from(patientConnections.values()).map(buildPatientPayload);
-        ws.send(
-          JSON.stringify({
-            type: 'init',
-            patients,
-            recentAlerts: alerts.slice(-10),
-          })
-        );
-        break;
-      }
-
-      case 'alert': {
-        const alert = {
-          id: `alert_${Date.now()}`,
-          ...data,
-          timestamp: new Date().toISOString(),
-          acknowledged: false,
-        };
-
-        alerts.push(alert);
-        pruneAlerts();
-
-        broadcastToNurses({
-          type: 'alert',
-          alert,
+        send(ws, {
+          type: 'init',
+          patients: [...patients.keys()]
         });
+
+        console.log('[WS] Nurse registered', data.nurseId);
         break;
       }
 
-      case 'heartbeat': {
-        const patient = patientConnections.get(data.patientId);
-        if (patient) {
-          patient.lastHeartbeat = new Date().toISOString();
+      // ---------------- STREAM REQUEST ----------------
+      case 'request_stream': {
+        const patientWs = patients.get(data.patientId);
+        if (!patientWs) {
+          send(ws, { type: 'error', message: 'Patient not online' });
+          return;
         }
+
+        send(patientWs, {
+          type: 'start_stream',
+          nurseId: data.nurseId
+        });
+
+        console.log('[WS] Nurse requested stream', data.patientId);
         break;
       }
+
+      // ---------------- OFFER (NURSE ONLY) ----------------
       case 'webrtc_offer': {
-        if (!data.patientId || !data.offer || !data.nurseId) {
-          return;
-        }
+        if (ws.role !== 'nurse') return;
 
-        const forwarded = sendToPatient(data.patientId, {
+        const patientWs = patients.get(data.patientId);
+        if (!patientWs) return;
+
+        send(patientWs, {
           type: 'webrtc_offer',
-          patientId: data.patientId,
-          nurseId: data.nurseId,
           offer: data.offer,
+          nurseId: data.nurseId
         });
 
-        if (!forwarded) {
-          sendToNurse(data.nurseId, {
-            type: 'webrtc_error',
-            patientId: data.patientId,
-            message: 'Patient not connected',
-          });
-        }
         break;
       }
+
+      // ---------------- ANSWER (PATIENT ONLY) ----------------
       case 'webrtc_answer': {
-        if (!data.patientId || !data.answer || !data.nurseId) {
-          return;
-        }
+        if (ws.role !== 'patient') return;
 
-        sendToNurse(data.nurseId, {
+        const nurseWs = nurses.get(data.nurseId);
+        if (!nurseWs) return;
+
+        send(nurseWs, {
           type: 'webrtc_answer',
-          patientId: data.patientId,
-          nurseId: data.nurseId,
           answer: data.answer,
+          patientId: ws.patientId
         });
+
         break;
       }
+
+      // ---------------- ICE ----------------
       case 'webrtc_ice_candidate': {
-        if (!data.candidate || !data.patientId || !data.nurseId || !data.target) {
-          return;
-        }
-
-        const payload = {
-          type: 'webrtc_ice_candidate',
-          patientId: data.patientId,
-          nurseId: data.nurseId,
-          candidate: data.candidate,
-        };
-
         if (data.target === 'patient') {
-          sendToPatient(data.patientId, payload);
-        } else if (data.target === 'nurse') {
-          sendToNurse(data.nurseId, payload);
+          const p = patients.get(data.patientId);
+          send(p, data);
+        }
+        if (data.target === 'nurse') {
+          const n = nurses.get(data.nurseId);
+          send(n, data);
         }
         break;
       }
-
-      default:
-        console.warn('[WebSocket] Unhandled message type:', data.type);
     }
   });
 
   ws.on('close', () => {
-    // Remove from nurse set if present
-    if (ws.nurseId) {
-      nurseConnections.delete(ws.nurseId);
-    } else {
-      for (const [nurseId, socket] of nurseConnections.entries()) {
-        if (socket === ws) {
-          nurseConnections.delete(nurseId);
-          break;
-        }
-      }
+    if (ws.role === 'patient') {
+      patients.delete(ws.patientId);
     }
-
-    // Remove patient connection if matches closing socket
-    for (const [patientId, patient] of patientConnections.entries()) {
-      if (patient.ws === ws) {
-        patientConnections.delete(patientId);
-        broadcastToNurses({
-          type: 'patient_disconnected',
-          patientId,
-        });
-        break;
-      }
+    if (ws.role === 'nurse') {
+      nurses.delete(ws.nurseId);
     }
   });
 });
 
-app.get('/api/patients', (_req, res) => {
-  const patients = Array.from(patientConnections.values()).map(buildPatientPayload);
-  res.json({ patients });
-});
-
-app.get('/api/alerts', (_req, res) => {
-  res.json({ alerts: alerts.slice(-50) });
-});
-
-app.post('/api/alerts/:alertId/acknowledge', (req, res) => {
-  const alert = alerts.find((item) => item.id === req.params.alertId);
-  if (!alert) {
-    return res.status(404).json({ error: 'Alert not found' });
-  }
-
-  alert.acknowledged = true;
-  alert.acknowledgedBy = req.body?.nurseId || 'unknown';
-  alert.acknowledgedAt = new Date().toISOString();
-
-  broadcastToNurses({
-    type: 'alert_acknowledged',
-    alertId: alert.id,
-    acknowledgedBy: alert.acknowledgedBy,
-  });
-
-  return res.json({ success: true });
-});
-
-app.get('/api/overshoot-config', (_req, res) => {
-  if (!process.env.OVERSHOOT_API_KEY) {
-    return res.status(500).json({ error: 'Overshoot API key not configured' });
-  }
-
-  res.json({
-    apiKey: process.env.OVERSHOOT_API_KEY,
-    apiUrl: OVERSHOOT_API_URL,
-  });
-});
-
-app.get('/health', (_req, res) => {
-  res.json({ status: 'ok', patients: patientConnections.size });
-});
-
-server.listen(PORT, () => {
-  console.log(`Patient monitoring server listening on port ${PORT}`);
-});
+server.listen(PORT, () =>
+  console.log(`✅ Signaling server running on ${PORT}`)
+);
