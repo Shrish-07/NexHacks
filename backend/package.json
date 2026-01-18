@@ -1,0 +1,26 @@
+{
+  "name": "patient-monitoring-backend",
+  "version": "1.0.0",
+  "description": "Real-time AI patient monitoring system using Overshoot SDK",
+  "main": "patient-monitor.js",
+  "type": "module",
+  "scripts": {
+    "start": "node patient-monitor.js",
+    "dev": "node --watch patient-monitor.js"
+  },
+  "keywords": [
+    "medical",
+    "monitoring",
+    "ai",
+    "overshoot",
+    "healthcare"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "ws": "^8.18.0"
+  }
+}

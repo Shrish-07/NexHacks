@@ -1,0 +1,200 @@
+# Attune Homepage UI Reference
+
+## Overview
+The current Attune homepage is a cinematic, dark-mode experience with neon teal/cyan lighting, translucent glass panels, and subtle sci-fi motion (glitch terminal, shimmer sweeps, and twinkling stars). This document captures the design tokens, component recipes, and interaction patterns present in `frontend/src/App.tsx`. Use it as the source of truth for any new surfaces or pages.
+
+---
+
+## Visual Foundations
+
+### Palette & Light
+- **Primary Glow**: `#14B8A6` (teal 500) → `#2DD4BF` (teal 400) → `#22D3EE` (cyan 400). Use gradients that move along this spectrum for emphasis text, icon backplates, and CTA outlines.
+- **Electric Accent**: `#38BDF8` (sky 400) and `#67E8F9` (cyan 300) for secondary glows, icons, and border highlights.
+- **Base Surfaces**: `rgba(0,0,0,0.85)` (nav), `rgba(15,23,42,0.95)` (cards), and `rgba(15,23,42,0.75)` (overlays). These keep the UI grounded while letting glows stand out.
+- **Glass Panels**: `rgba(255,255,255,0.9)` with `border: 1px solid rgba(255,255,255,0.7)` for hero copy blocks and CTA buttons.
+- **Text Neutrals**: `#F8FAFC` (slate 50) for headings, `#E2E8F0` (slate 200) for body, `#94A3B8` (slate 400) for muted copy, `#0F172A` for dark-on-light panels.
+
+### Typography & Scale
+- Font family: system sans (React/Vite default) with strong contrast between weights.
+- **Hero**: `text-7xl md:text-8xl font-black`. Use stacked lines and gradient-filled keywords.
+- **Section Heading**: `text-5xl font-black`.
+- **Body**: `text-xl font-medium` for hero copy, `text-slate-300` for cards, `text-teal-100` inside CTA.
+- **Badges / Labels**: `text-sm font-bold tracking-wide uppercase`.
+
+### Radii, Spacing, & Grid
+- Radii: `rounded-2xl` (icons/buttons), `rounded-3xl` (cards, hero panel), `rounded-full` (badges/pills).
+- Container: `max-w-7xl mx-auto px-6` across nav, hero, feature grid, CTA, footer.
+- Vertical rhythm: hero `pt-20 pb-16`, feature grid `mb-24`, CTA sits after a `mb-24` gap, footer separated by `mt-16`.
+- Grid: `grid md:grid-cols-2 gap-6` for feature cards; keep consistent spacing for future sections.
+
+---
+
+## Backdrop & Effects
+- **FaultyTerminal**: Rendered once as a fixed, full-viewport background with props `{ scale: 1.3, digitSize: 2.7, scanlineIntensity: 0.15, flickerAmount: 1, noiseAmp: 0.15, curvature: 0.2, tint: '#ffffff', mouseReact: true, mouseStrength: 0.6, brightness: 1 }`. It provides subtle CRT noise and cursor-following parallax; do not layer additional backgrounds above it.
+- **Glass + Blur**: Apply `backdrop-blur-xl` (nav, cards) and `backdrop-blur-sm` (badge, hero paragraph) to reinforce depth.
+- **Glow Helpers**: For text or icons that should emit light, wrap them in a relative container and add a blurred, semi-transparent gradient `div` with `absolute -inset-8 blur-3xl -z-10`.
+- **Starfield**: CTA section seeds 20 absolutely positioned 1×1px dots with `animate-twinkle` plus random delay/duration. Reuse this approach for any cosmic panel.
+
+---
+
+## Component Recipes
+
+### Navigation Bar
+- Structure: `nav` with `border-b border-white/10 bg-black/85 backdrop-blur-xl`.
+- Brand lockup: gradient tile behind the Eye icon (`bg-gradient-to-br from-teal-500 to-cyan-500`), duplicated as a blurred glow layer.
+- Action: glass button
+  ```jsx
+  <button
+    className="px-6 py-2.5 rounded-xl font-semibold text-white bg-white/10 border border-white/20 hover:border-cyan-300/60 hover:bg-white/20 transition-all duration-200 hover:shadow-lg hover:shadow-cyan-400/30 backdrop-blur"
+  >
+    Login
+  </button>
+  ```
+
+### Hero Badge
+```jsx
+<div className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-slate-900/95 border border-teal-400/30 backdrop-blur-sm shadow-lg shadow-teal-500/20">
+  <Sparkles className="w-4 h-4 text-teal-400" />
+  <span className="text-sm font-bold text-teal-300 tracking-wide">AI-POWERED PATIENT MONITORING</span>
+  <Wifi className="w-4 h-4 text-cyan-400" />
+</div>
+```
+
+### Hero Heading & Copy
+- Staggered entrance using `isVisible` boolean to toggle `opacity` + `translate-y` classes with incremental delays (100ms increments).
+- Keyword highlight:
+  ```jsx
+  <span className="bg-gradient-to-r from-teal-400 via-cyan-400 to-teal-300 bg-clip-text text-transparent"
+        style={{ textShadow: '0 0 40px rgba(20,184,166,0.3)' }}>
+    Matters
+  </span>
+  ```
+- Supporting paragraph sits inside a semi-opaque pill: `className="text-xl text-black max-w-3xl mx-auto leading-relaxed mb-12 rounded-3xl px-6 py-4 bg-white/90 border border-white/70 shadow-[0_25px_60px_rgba(15,23,42,0.25)] backdrop-blur-sm"`.
+
+### Feature Cards
+```jsx
+{features.map((feature, idx) => {
+  const Icon = feature.icon;
+  const isHovered = hoveredCard === idx;
+  return (
+    <div
+      key={idx}
+      onMouseEnter={() => setHoveredCard(idx)}
+      onMouseLeave={() => setHoveredCard(null)}
+      className={`group p-8 rounded-3xl bg-slate-900/95 border border-teal-400/20 backdrop-blur-xl transition-all duration-500 cursor-pointer hover:shadow-2xl hover:shadow-teal-400/30 hover:-translate-y-2 hover:border-teal-400/50 ${
+        isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-10'
+      }`}
+      style={{ transitionDelay: `${600 + idx * 100}ms` }}
+    >
+      <div className="relative mb-6 inline-block">
+        <div className={`w-16 h-16 rounded-2xl bg-gradient-to-br ${feature.gradient} flex items-center justify-center transition-all duration-500 group-hover:scale-110 group-hover:rotate-6`}>
+          <Icon className="w-8 h-8 text-white" />
+        </div>
+        <div className={`absolute inset-0 bg-gradient-to-br ${feature.gradient} rounded-2xl blur-xl opacity-50 group-hover:opacity-75 transition-opacity duration-500`} />
+      </div>
+      <h3 className="text-2xl font-bold text-teal-300 mb-3">{feature.title}</h3>
+      <p className="text-slate-300 leading-relaxed">{feature.desc}</p>
+      <div className="mt-4 flex items-center gap-2 text-teal-400 font-semibold text-sm opacity-0 group-hover:opacity-100 transition-opacity">
+        Learn more <ChevronRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+      </div>
+    </div>
+  );
+})}
+```
+
+### CTA Panel
+- Wrapper: `relative p-16 rounded-3xl text-center overflow-hidden group`.
+- Layer order: (1) gradient wash `absolute inset-0 bg-gradient-to-r from-teal-500 to-cyan-500 opacity-10 group-hover:opacity-20`, (2) deep background `absolute inset-0 bg-gradient-to-br from-slate-900 via-teal-900 to-cyan-900`, (3) twinkling stars (randomized inline style), (4) content.
+- CTA button: solid white to contrast the dark scene, with gradient sweep overlay.
+  ```jsx
+  <button
+    className="group/cta relative px-10 py-5 rounded-2xl font-bold text-slate-900 bg-white hover:shadow-2xl hover:shadow-teal-400/50 transition-all duration-300 hover:scale-105 inline-flex items-center gap-3 overflow-hidden"
+  >
+    <span className="relative z-10">Get Started</span>
+    <ArrowRight className="w-6 h-6 group-hover/cta:translate-x-2 transition-transform relative z-10" />
+    <div className="absolute inset-0 bg-gradient-to-r from-teal-400/0 via-teal-400/30 to-teal-400/0 translate-x-[-200%] group-hover/cta:translate-x-[200%] transition-transform duration-1000" />
+  </button>
+  ```
+
+### Footer
+- Light surface to close the page: `border-t border-slate-200/50 bg-white/50 backdrop-blur-xl text-slate-600`.
+- Copy stays concise (`font-semibold`, `&copy; 2026 Attune...`).
+
+---
+
+## Buttons & States
+- Use `activeBtn` state to provide tactile feedback on any button (`onMouseDown`, `onMouseUp`, `onMouseLeave`).
+- Keep visual feedback minimal—scale or highlight shifts rather than neumorphic pressed shadows.
+- Login button: toggles `activeBtn === 'login'` if further differentiation is needed; currently uses only hover styling.
+- CTA button uses translational sweep to signal interactivity; avoid additional drop shadows beyond `hover:shadow-2xl`.
+
+---
+
+## Iconography
+- Library: `lucide-react` (`Eye`, `Shield`, `Activity`, `Camera`, `ArrowRight`, `Sparkles`, `Heart`, `Zap`, `Wifi`, `ChevronRight`).
+- Sizes: `w-6 h-6` (nav/button), `w-8 h-8` (feature icon), `w-16 h-16` (CTA Heart).
+- Color approach: white icons on gradient chips; brand-colored icons on neutral backgrounds.
+
+---
+
+## Interaction & Motion
+- Reveal on load: `isVisible` toggles after mount to animate hero text/cards using `opacity` + `translate-y`.
+- Hover: cards translate `-translate-y-2`, icons scale/rotate, CTA heart scales up, `ChevronRight` slides.
+- Background FX: `FaultyTerminal` runs with flicker, while starfield uses `@keyframes twinkle { 0%,100% { opacity: 0 } 50% { opacity: 1 } }`.
+- Utility keyframes defined in `<style>` block: `blob`, `scan`, `twinkle`. Reuse those names to maintain cohesion.
+
+---
+
+## Accessibility & Content Standards
+- Maintain contrast ratios: light text on dark backgrounds and dark text on light glass cards.
+- Ensure interactive targets ≥44×44px; all current buttons exceed this.
+- Use semantic landmarks (`<nav>`, `<footer>`) and descriptive labels (“Login”, “Get Started”).
+- Limit alert language to calm, reassuring copy that matches Attune’s “calm & unobtrusive” promise.
+
+---
+
+## Quick Start Layout
+```tsx
+import React, { useState, useEffect, useRef } from 'react';
+import { Eye, Shield, Activity, Camera, ArrowRight, Sparkles, Heart, Zap, Wifi, ChevronRight } from 'lucide-react';
+import FaultyTerminal from './components/FaultyTerminal';
+
+export default function AttuneHomepage() {
+  const [activeBtn, setActiveBtn] = useState<ActiveButton>(null);
+  const [hoveredCard, setHoveredCard] = useState<number | null>(null);
+  const [isVisible, setIsVisible] = useState(false);
+  const heroRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => setIsVisible(true), []);
+
+  return (
+    <div className="min-h-screen relative overflow-hidden">
+      <div className="fixed inset-0 -z-10 flex items-center justify-center pointer-events-none opacity-100" aria-hidden="true">
+        <FaultyTerminal
+          scale={1.3}
+          digitSize={2.7}
+          scanlineIntensity={0.15}
+          glitchAmount={0}
+          flickerAmount={1}
+          noiseAmp={0.15}
+          chromaticAberration={0}
+          dither={0}
+          curvature={0.2}
+          tint="#ffffff"
+          mouseReact
+          mouseStrength={0.6}
+          brightness={1}
+        />
+      </div>
+      {/* Follow component sections above */}
+    </div>
+  );
+}
+```
+
+---
+
+## Version
+- Design Reference Version: 2.0  
+- Last Reviewed: January 2026 (aligned with `frontend/src/App.tsx`)  
+- Brand: Attune – “See what matters.”
