@@ -5,17 +5,13 @@ requests
 python-dotenv
 pydantic
 websockets
-
-# AI / ML
 torch
 opencv-python
 numpy
-
-# Voice
 livekit-agents
-
-# LLM
+livekit
 openai
-
-# Dev utilities
 rich
+twilio
+flask
+asyncio
