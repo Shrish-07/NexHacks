@@ -47,6 +47,10 @@ In the face of escalating healthcare crises – including nurse shortages projec
 
 ## ⚙️ How It Works
 
+### System Architecture
+
+![Tech Diagram](Tech%20Diagram.png)
+
 1. **Data Ingestion**: Camera feeds (real or simulated via webcams) are streamed using LiveKit for low-latency access.
 2. **AI Processing**:
    - YOLOv8 detects objects and movements (e.g., person exiting bed).
@@ -72,34 +76,29 @@ For a deeper dive, explore the code:
 ### Steps
 
 1. Clone the repository:
-   ```
-   git clone https://github.com/Shrish-07/NexHacks.git
-   cd NexHacks
-   ```
+git clone https://github.com/Shrish-07/NexHacks.git
+cd NexHacks
+
 2. Install backend dependencies:
-   ```
-   pip install -r requirements.txt
-   ```
+pip install -r requirements.txt
+
 3. Install frontend dependencies:
-   ```
-   cd frontend
-   npm install
-   cd ..
-   ```
+cd frontend
+npm install
+cd ..
+
 4. Set up environment variables (e.g., API keys for Overshoot.ai and LiveKit – contact us for demo keys).
 
 ## 🎯 Usage
 
 1. Start the backend:
-   ```
-   cd backend
-   uvicorn main:app --reload
-   ```
+cd backend
+uvicorn main:app --reload
+
 2. Start the frontend:
-   ```
-   cd frontend
-   npm run dev
-   ```
+cd frontend
+npm run dev
+
 3. Access the dashboard at `http://localhost:5173/monitor.html` (or the live demo at [nexhacks-xi.vercel.app](https://nexhacks-xi.vercel.app)).
 4. Simulate feeds using webcams or sample videos; monitor real-time alerts.
 
