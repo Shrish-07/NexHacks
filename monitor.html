@@ -24,6 +24,14 @@
             margin: 5px 0;
         }
 
+        .voice-status {
+            color: #ff0;
+            margin: 5px 0;
+            padding: 10px;
+            border: 1px solid #ff0;
+            background: #222;
+        }
+
         .alert-box {
             color: #ff0000;
             background: #330000;
@@ -34,14 +42,10 @@
         }
 
         @keyframes blink {
-
-            0%,
-            50% {
+            0%, 50% {
                 border-color: #ff0000;
             }
-
-            51%,
-            100% {
+            51%, 100% {
                 border-color: #660000;
             }
         }
@@ -81,6 +85,15 @@
             border: 1px solid #0f0;
             object-fit: cover;
         }
+
+        .transcript-box {
+            margin-top: 10px;
+            padding: 10px;
+            background: #111;
+            border: 1px solid #0ff;
+            min-height: 60px;
+            color: #0ff;
+        }
     </style>
 </head>
 
@@ -88,18 +101,23 @@
     <h1>🏥 PATIENT MONITORING SYSTEM</h1>
     <div class="status">Patient ID: PATIENT_001</div>
     <div class="status">Status: Initializing...</div>
+    <div class="voice-status">🎤 Voice Monitor: Initializing...</div>
+    <div class="transcript-box" id="transcript">Listening for audio...</div>
     <div id="output"></div>
     <div class="preview">
         <div class="preview-label">Camera Preview (local device)</div>
         <video id="localPreview" autoplay muted playsinline></video>
     </div>
 
+    <script src="https://unpkg.com/livekit-client@2.5.8/dist/livekit-client.umd.min.js"></script>
     <script type="module">
         import { RealtimeVision } from 'https://esm.sh/@overshoot/sdk';
 
         const output = document.getElementById('output');
         const statusEls = document.querySelectorAll('.status');
         const statusEl = statusEls[statusEls.length - 1] ?? null;
+        const voiceStatusEl = document.querySelector('.voice-status');
+        const transcriptEl = document.getElementById('transcript');
         const previewVideo = document.getElementById('localPreview');
 
         const PATIENT = {
@@ -109,14 +127,41 @@
         };
 
         const ALERT_COOLDOWN = 10000; // ms
+        const VOICE_ALERT_COOLDOWN = 5000; // ms for voice alerts
         let vision;
         let ws;
         let lastAlertTime = 0;
+        let lastVoiceAlertTime = 0;
         let heartbeatTimer;
         let cameraStream;
         let peerConnection = null;
         let currentNurseId = null;
         const pendingRemoteCandidates = [];
+
+        // LiveKit voice monitoring variables
+        let livekitRoom = null;
+        let audioTrack = null;
+        let isVoiceMonitorActive = false;
+
+        // Distress keywords for voice detection
+        const DISTRESS_KEYWORDS = {
+            'help': 'PATIENT_DISTRESS',
+            'help me': 'PATIENT_EMERGENCY',
+            'emergency': 'PATIENT_EMERGENCY',
+            'choking': 'CHOKING',
+            'can\'t breathe': 'BREATHING_DIFFICULTY',
+            'cant breathe': 'BREATHING_DIFFICULTY',
+            'cannot breathe': 'BREATHING_DIFFICULTY',
+            'pain': 'PAIN_ALERT',
+            'hurt': 'PAIN_ALERT',
+            'hurts': 'PAIN_ALERT',
+            'chest pain': 'CARDIAC_ALERT',
+            'heart': 'CARDIAC_ALERT',
+            'falling': 'FALL_ALERT',
+            'dizzy': 'DIZZINESS',
+            'nurse': 'NURSE_REQUEST',
+            'doctor': 'DOCTOR_REQUEST',
+        };
 
         const DEFAULT_ICE_SERVERS = [
             {
@@ -134,7 +179,6 @@
         ];
 
         const rtcConfig = buildRtcConfig();
-
         const httpBase = getHttpBase();
         const wsUrl = getWsUrl(httpBase);
 
@@ -152,6 +196,190 @@
 
             updateStatus('Connecting to backend...');
             connectWebSocket(config);
+
+            // Initialize voice monitoring
+            await initVoiceMonitoring();
+        }
+
+        async function initVoiceMonitoring() {
+            try {
+                updateVoiceStatus('Requesting microphone access...');
+                
+                // Get microphone access
+                const audioStream = await navigator.mediaDevices.getUserMedia({
+                    audio: {
+                        echoCancellation: true,
+                        noiseSuppression: true,
+                        autoGainControl: true,
+                    },
+                    video: false
+                });
+
+                updateVoiceStatus('Connecting to LiveKit...');
+
+                // Get LiveKit token from backend
+                const tokenResponse = await fetch(`${httpBase}/api/livekit-token`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        roomName: `patient_${PATIENT.patientId}`,
+                        participantName: PATIENT.patientId,
+                    })
+                });
+
+                if (!tokenResponse.ok) {
+                    throw new Error('Failed to get LiveKit token');
+                }
+
+                const { token, url } = await tokenResponse.json();
+
+                // Connect to LiveKit room
+                livekitRoom = new LivekitClient.Room({
+                    adaptiveStream: true,
+                    dynacast: true,
+                });
+
+                // Set up transcription handler
+                livekitRoom.on(LivekitClient.RoomEvent.TranscriptionReceived, handleTranscription);
+
+                await livekitRoom.connect(url, token);
+                
+                // Publish audio track
+                audioTrack = await LivekitClient.createLocalAudioTrack({
+                    source: LivekitClient.Track.Source.Microphone,
+                });
+                await livekitRoom.localParticipant.publishTrack(audioTrack);
+
+                isVoiceMonitorActive = true;
+                updateVoiceStatus('🎤 Voice Monitor: ACTIVE - Listening for distress');
+                
+                console.log('✅ Voice monitoring active');
+            } catch (error) {
+                console.error('Failed to initialize voice monitoring:', error);
+                updateVoiceStatus('⚠️ Voice Monitor: FAILED - ' + error.message);
+            }
+        }
+
+        function handleTranscription(transcription) {
+            // Handle both single segment and array of segments
+            const segments = Array.isArray(transcription.segments) 
+                ? transcription.segments 
+                : [transcription];
+
+            segments.forEach(segment => {
+                const text = segment.text || segment.final || '';
+                if (!text) return;
+
+                console.log('Transcription:', text);
+                updateTranscript(text);
+
+                // Check for distress keywords
+                const detection = detectDistress(text);
+                if (detection.isDistress) {
+                    handleVoiceDistress(detection.eventType, text, detection.keyword);
+                }
+            });
+        }
+
+        function detectDistress(transcript) {
+            const lowerText = transcript.toLowerCase();
+            
+            // Check each keyword
+            for (const [keyword, eventType] of Object.entries(DISTRESS_KEYWORDS)) {
+                if (lowerText.includes(keyword)) {
+                    return {
+                        isDistress: true,
+                        eventType: eventType,
+                        keyword: keyword
+                    };
+                }
+            }
+
+            return { isDistress: false };
+        }
+
+        function handleVoiceDistress(eventType, transcript, keyword) {
+            const now = Date.now();
+            if (now - lastVoiceAlertTime < VOICE_ALERT_COOLDOWN) {
+                return; // Cooldown to prevent spam
+            }
+
+            lastVoiceAlertTime = now;
+
+            const alert = {
+                source: 'voice',
+                eventType: eventType,
+                transcript: transcript,
+                keyword: keyword,
+                confidence: 0.9,
+                urgency: eventType.includes('EMERGENCY') ? 'immediate' : 'urgent'
+            };
+
+            console.log('🚨 Voice distress detected:', alert);
+            showVoiceAlert(alert);
+            sendVoiceAlertToBackend(alert);
+        }
+
+        function sendVoiceAlertToBackend(alert) {
+            if (!ws || ws.readyState !== WebSocket.OPEN) {
+                console.warn('WebSocket not ready, skipping voice alert');
+                return;
+            }
+
+            ws.send(JSON.stringify({
+                type: 'voice_alert',
+                ...PATIENT,
+                condition: alert.eventType,
+                confidence: alert.confidence,
+                description: `Voice distress detected: "${alert.keyword}" - ${alert.transcript}`,
+                urgency: alert.urgency,
+                transcript: alert.transcript,
+                source: 'voice'
+            }));
+
+            console.log('🚨 Voice alert sent to backend');
+        }
+
+        function showVoiceAlert(alert) {
+            const timestamp = new Date().toLocaleString();
+
+            const alertDiv = document.createElement('div');
+            alertDiv.className = 'alert-box';
+            alertDiv.innerHTML = `
+                <div class="alert-title">🎤🚨 VOICE ALERT - PATIENT CALLING FOR HELP 🚨🎤</div>
+                <div class="alert-details">
+                    ═══════════════════════════════════════════════════════════════════<br>
+                    Patient ID:      ${PATIENT.patientId}<br>
+                    Alert Type:      ${alert.eventType}<br>
+                    Detected Word:   "${alert.keyword}"<br>
+                    Confidence:      ${(alert.confidence * 100).toFixed(1)}%<br>
+                    Urgency:         ${alert.urgency.toUpperCase()}<br>
+                    Time:            ${timestamp}<br>
+                    <br>
+                    Patient Said:<br>
+                    "${alert.transcript}"<br>
+                    ═══════════════════════════════════════════════════════════════════<br>
+                    <br>
+                    📱 Notification sent to nurse station
+                </div>
+            `;
+
+            output.insertBefore(alertDiv, output.firstChild);
+
+            setTimeout(() => {
+                alertDiv.style.opacity = '0.3';
+            }, 30000);
+        }
+
+        function updateTranscript(text) {
+            const timestamp = new Date().toLocaleTimeString();
+            transcriptEl.innerHTML = `[${timestamp}] Patient: "${text}"`;
+        }
+
+        function updateVoiceStatus(text) {
+            if (voiceStatusEl) {
+                voiceStatusEl.textContent = text;
+            }
         }
 
         function connectWebSocket(config) {
@@ -326,6 +554,7 @@ If emergency: {
                     confidence: analysis.confidence,
                     description: analysis.description,
                     urgency: analysis.urgency,
+                    source: 'vision'
                 })
             );
 
@@ -396,6 +625,13 @@ If emergency: {
             stopHeartbeat();
             closePeerConnection();
             stopCameraStream();
+            
+            // Cleanup LiveKit
+            if (livekitRoom) {
+                await livekitRoom.disconnect();
+                livekitRoom = null;
+            }
+            
             if (vision) {
                 await vision.stop();
             }
