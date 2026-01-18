@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Activity, AlertTriangle, Video, HeartPulse, Shield, Wifi, Radar } from 'lucide-react';
+import { Activity, AlertTriangle, Video, HeartPulse, Shield, Wifi } from 'lucide-react';
 import FaultyTerminal from '../components/FaultyTerminal';
 import northWingFeed from '../../loop_vids/feed_north.mp4';
 import southWingFeed from '../../loop_vids/feed_south.mp4';
@@ -483,6 +483,9 @@ export default function NurseDashboard() {
   const focusedPatient = focusedPatientId ? patients.get(focusedPatientId) : null;
   const connectedStreams = remoteStreams.current.size;
   const awaitingFeeds = Math.max(patients.size - connectedStreams, 0);
+  const patientEntries = Array.from(patients.values());
+  const totalMonitoredFeeds = patientEntries.length + LOOP_FEEDS.length;
+  const showPatientPlaceholder = totalMonitoredFeeds === 0;
 
   const overviewStats = [
     {
@@ -581,75 +584,6 @@ export default function NurseDashboard() {
           })}
         </section>
 
-        <section className="relative rounded-3xl border border-white/10 bg-slate-900/80 backdrop-blur-xl p-6 shadow-[0_30px_80px_rgba(15,23,42,0.55)] overflow-hidden">
-          <div
-            className="absolute inset-0 bg-gradient-to-br from-cyan-500/10 via-transparent to-blue-500/10 opacity-80"
-            aria-hidden="true"
-          />
-          <div className="relative z-10 space-y-6">
-            <div className="flex flex-wrap items-center justify-between gap-4">
-              <div className="flex items-center gap-4">
-                <span className="w-12 h-12 rounded-2xl border border-white/10 bg-white/5 flex items-center justify-center shadow-inner shadow-cyan-500/20">
-                  <Radar className="w-6 h-6 text-cyan-200" />
-                </span>
-                <div>
-                  <p className="text-xs text-cyan-200 uppercase tracking-[0.4em]">Facility channels</p>
-                  <h2 className="text-3xl font-bold">Looped Live Feeds</h2>
-                </div>
-              </div>
-              <span className="text-sm text-slate-300">Simulated feeds for demo mode</span>
-            </div>
-
-            <div className="grid gap-4 md:grid-cols-2">
-              {LOOP_FEEDS.map((feed) => (
-                <article
-                  key={feed.id}
-                  className="relative overflow-hidden rounded-3xl border border-white/10 bg-slate-950/70 backdrop-blur-xl p-5 shadow-[0_25px_60px_rgba(15,23,42,0.4)] space-y-4"
-                >
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div>
-                      <p className="text-sm text-slate-300">{feed.location}</p>
-                      <p className="text-xl font-semibold text-white">{feed.title}</p>
-                    </div>
-                    <span className="px-3 py-1 rounded-full text-[11px] font-semibold tracking-wide border border-cyan-400/40 text-cyan-100 bg-cyan-500/10">
-                      Looped feed
-                    </span>
-                  </div>
-
-                  <div className="relative h-56 rounded-2xl border border-white/10 bg-black/60 overflow-hidden">
-                    <video
-                      className="w-full h-full object-cover"
-                      src={feed.src}
-                      muted
-                      playsInline
-                      loop
-                      autoPlay
-                      preload="auto"
-                    />
-                    <div className="absolute top-3 right-3 px-3 py-1 rounded-full text-[10px] font-semibold border border-white/10 bg-black/40 backdrop-blur text-white/80">
-                      Live loop
-                    </div>
-                  </div>
-
-                  <p className="text-sm text-slate-300 leading-relaxed">{feed.status}</p>
-
-                  <div className="grid grid-cols-2 gap-3 text-sm text-slate-300">
-                    {feed.metrics.map((metric) => (
-                      <div
-                        key={`${feed.id}-${metric.label}`}
-                        className="rounded-2xl border border-white/10 bg-white/5 px-3 py-2"
-                      >
-                        <p className="text-[11px] uppercase tracking-wide text-slate-400">{metric.label}</p>
-                        <p className="text-lg font-semibold text-white">{metric.value}</p>
-                      </div>
-                    ))}
-                  </div>
-                </article>
-              ))}
-            </div>
-          </div>
-        </section>
-
         <div className="grid gap-6 xl:grid-cols-[2fr_1fr]">
           <section className="relative rounded-3xl border border-white/10 bg-slate-900/80 backdrop-blur-xl p-6 shadow-[0_30px_80px_rgba(15,23,42,0.55)] overflow-hidden">
             <div
@@ -662,17 +596,17 @@ export default function NurseDashboard() {
                   <p className="text-xs text-cyan-200 uppercase tracking-[0.4em]">Live Rooms</p>
                   <h2 className="text-3xl font-bold">Active Patients</h2>
                 </div>
-                <span className="text-sm text-slate-300">{patients.size} connected</span>
+                <span className="text-sm text-slate-300">{totalMonitoredFeeds} feeds online</span>
               </div>
 
               <div className="grid gap-4 md:grid-cols-2">
-                {patients.size === 0 && (
+                {showPatientPlaceholder && (
                   <div className="col-span-full rounded-2xl border border-dashed border-white/20 py-16 text-center text-slate-400">
                     Awaiting patient connections…
                   </div>
                 )}
 
-                {Array.from(patients.values()).map((patient) => {
+                {patientEntries.map((patient) => {
                   const hasAlert = activeAlertPatients.has(patient.patientId);
                   const hasStream = remoteStreams.current.has(patient.patientId);
                   return (
@@ -752,6 +686,56 @@ export default function NurseDashboard() {
                     </article>
                   );
                 })}
+
+                {LOOP_FEEDS.map((feed) => (
+                  <article
+                    key={`loop-${feed.id}`}
+                    className="relative overflow-hidden rounded-3xl border border-white/10 bg-slate-950/70 backdrop-blur-xl p-5 shadow-[0_25px_60px_rgba(15,23,42,0.4)]"
+                  >
+                    <div className="absolute inset-0 opacity-50 blur-3xl pointer-events-none bg-gradient-to-br from-cyan-500/20 via-transparent to-blue-500/10" />
+                    <div className="relative space-y-4">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-sm text-slate-300">{feed.location}</p>
+                          <p className="text-xl font-semibold">{feed.title}</p>
+                        </div>
+                        <div className="flex flex-col items-end gap-2">
+                          <span className="px-3 py-1 rounded-full text-[11px] font-semibold tracking-wide border bg-cyan-500/20 text-cyan-100 border-cyan-500/40">
+                            Facility camera
+                          </span>
+                          <span className="text-xs text-slate-300">{feed.status}</span>
+                        </div>
+                      </div>
+
+                      <div className="relative h-44 rounded-2xl border border-white/10 bg-black/40 overflow-hidden">
+                        <video
+                          className="w-full h-full object-cover"
+                          src={feed.src}
+                          muted
+                          playsInline
+                          loop
+                          autoPlay
+                          preload="auto"
+                        />
+                        <div className="absolute top-3 right-3 px-3 py-1 rounded-full text-[10px] font-semibold border border-white/10 bg-black/40 backdrop-blur text-white/80">
+                          Live uplink
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-3 text-sm text-slate-300">
+                        {feed.metrics.map((metric) => (
+                          <div
+                            key={`${feed.id}-${metric.label}`}
+                            className="rounded-2xl border border-white/10 bg-white/5 px-3 py-2"
+                          >
+                            <p className="text-[11px] uppercase tracking-wide text-slate-400">{metric.label}</p>
+                            <p className="text-lg font-semibold text-white">{metric.value}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </article>
+                ))}
               </div>
             </div>
           </section>
