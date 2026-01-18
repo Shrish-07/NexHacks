@@ -4,6 +4,7 @@ import FaultyTerminal from '../components/FaultyTerminal';
 import northWingFeed from '../../loop_vids/feed_north.png';
 import southWingFeed from '../../loop_vids/feed_south.png';
 import johnDoeFeed from '../../loop_vids/feed_john.mp4';
+import alertSfx from '../assets/alert.mp3';
 
 type Patient = {
   patientId: string;
@@ -111,6 +112,7 @@ export default function NurseDashboard() {
   const remoteStreams = useRef(new Map<string, MediaStream>());
   const pendingRemoteCandidates = useRef(new Map<string, RTCIceCandidateInit[]>());
   const pendingOfferPatients = useRef(new Set<string>());
+  const alertAudioRef = useRef<HTMLAudioElement | null>(null);
 
   const httpBase = useMemo(() => getHttpBase(), []);
   const wsUrl = useMemo(() => getWsUrl(httpBase), [httpBase]);
@@ -127,6 +129,22 @@ export default function NurseDashboard() {
       cleanupAllPeerConnections();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    const audio = new Audio(alertSfx);
+    audio.preload = 'auto';
+    audio.volume = 0.75;
+    alertAudioRef.current = audio;
+
+    return () => {
+      audio.pause();
+      alertAudioRef.current = null;
+    };
   }, []);
 
   const activeAlertPatients = useMemo(() => {
@@ -245,6 +263,7 @@ export default function NurseDashboard() {
       case 'alert': {
         setAlerts((prev) => [data.alert, ...prev].slice(0, 50));
         setFocusedPatientId(data.alert.patientId);
+        playAlertSound();
         break;
       }
       case 'alert_acknowledged': {
@@ -274,6 +293,18 @@ export default function NurseDashboard() {
       default:
         console.warn('[NurseDashboard] Unknown message type', data.type);
     }
+  }
+
+  function playAlertSound() {
+    const audio = alertAudioRef.current;
+    if (!audio) {
+      return;
+    }
+
+    audio.currentTime = 0;
+    audio.play().catch((error) => {
+      console.warn('[NurseDashboard] Failed to play alert audio', error);
+    });
   }
 
   function createPeerConnection(patientId: string) {
