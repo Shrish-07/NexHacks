@@ -711,7 +711,7 @@ export default function NurseDashboard() {
                         </div>
                         <div className="flex flex-col items-end gap-2">
                           <span className="px-3 py-1 rounded-full text-[11px] font-semibold tracking-wide border bg-cyan-500/20 text-cyan-100 border-cyan-500/40">
-                            {feed.patientCamera ? 'Looped patient feed' : 'Facility camera'}
+                            {feed.patientCamera ? 'Stable' : 'Facility camera'}
                           </span>
                           <span className="text-xs text-slate-300">{feed.status}</span>
                         </div>
