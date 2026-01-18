@@ -13,6 +13,7 @@ const PORT = Number(process.env.PORT || 3000);
 app.use(cors());
 app.use(express.json());
 
+// ---------------- STATE ----------------
 const patients = new Map(); // patientId -> ws
 const nurses = new Map();   // nurseId -> ws
 
@@ -22,23 +23,25 @@ function send(ws, payload) {
   }
 }
 
+// ---------------- WS ----------------
 wss.on('connection', (ws) => {
-  ws.on('message', (msg) => {
+  ws.on('message', (raw) => {
     let data;
     try {
-      data = JSON.parse(msg);
+      data = JSON.parse(raw.toString());
     } catch {
+      console.warn('[WS] Invalid JSON');
       return;
     }
 
     switch (data.type) {
 
-      // ---------------- REGISTER ----------------
+      // ---------- REGISTER ----------
       case 'register_patient': {
         ws.role = 'patient';
         ws.patientId = data.patientId;
         patients.set(data.patientId, ws);
-        console.log('[WS] Patient registered', data.patientId);
+        console.log('[WS] Patient registered:', data.patientId);
         break;
       }
 
@@ -49,31 +52,33 @@ wss.on('connection', (ws) => {
 
         send(ws, {
           type: 'init',
-          patients: [...patients.keys()]
+          patients: [...patients.keys()],
         });
 
-        console.log('[WS] Nurse registered', data.nurseId);
+        console.log('[WS] Nurse registered:', data.nurseId);
         break;
       }
 
-      // ---------------- STREAM REQUEST ----------------
+      // ---------- STREAM REQUEST ----------
       case 'request_stream': {
+        if (ws.role !== 'nurse') return;
+
         const patientWs = patients.get(data.patientId);
         if (!patientWs) {
-          send(ws, { type: 'error', message: 'Patient not online' });
+          send(ws, { type: 'error', message: 'Patient not connected' });
           return;
         }
 
         send(patientWs, {
           type: 'start_stream',
-          nurseId: data.nurseId
+          nurseId: ws.nurseId,
         });
 
-        console.log('[WS] Nurse requested stream', data.patientId);
+        console.log('[WS] Nurse requested stream:', data.patientId);
         break;
       }
 
-      // ---------------- OFFER (NURSE ONLY) ----------------
+      // ---------- OFFER (NURSE ONLY) ----------
       case 'webrtc_offer': {
         if (ws.role !== 'nurse') return;
 
@@ -83,13 +88,14 @@ wss.on('connection', (ws) => {
         send(patientWs, {
           type: 'webrtc_offer',
           offer: data.offer,
-          nurseId: data.nurseId
+          nurseId: ws.nurseId,
         });
 
+        console.log('[WS] Offer → patient', data.patientId);
         break;
       }
 
-      // ---------------- ANSWER (PATIENT ONLY) ----------------
+      // ---------- ANSWER (PATIENT ONLY) ----------
       case 'webrtc_answer': {
         if (ws.role !== 'patient') return;
 
@@ -99,37 +105,50 @@ wss.on('connection', (ws) => {
         send(nurseWs, {
           type: 'webrtc_answer',
           answer: data.answer,
-          patientId: ws.patientId
+          patientId: ws.patientId,
         });
 
+        console.log('[WS] Answer → nurse', data.nurseId);
         break;
       }
 
-      // ---------------- ICE ----------------
+      // ---------- ICE ----------
       case 'webrtc_ice_candidate': {
         if (data.target === 'patient') {
-          const p = patients.get(data.patientId);
-          send(p, data);
+          send(patients.get(data.patientId), data);
         }
         if (data.target === 'nurse') {
-          const n = nurses.get(data.nurseId);
-          send(n, data);
+          send(nurses.get(data.nurseId), data);
         }
         break;
       }
+
+      default:
+        console.warn('[WS] Unknown type:', data.type);
     }
   });
 
   ws.on('close', () => {
     if (ws.role === 'patient') {
       patients.delete(ws.patientId);
+      console.log('[WS] Patient disconnected:', ws.patientId);
     }
     if (ws.role === 'nurse') {
       nurses.delete(ws.nurseId);
+      console.log('[WS] Nurse disconnected:', ws.nurseId);
     }
   });
 });
 
-server.listen(PORT, () =>
-  console.log(`✅ Signaling server running on ${PORT}`)
-);
+// ---------------- HTTP ----------------
+app.get('/health', (_req, res) => {
+  res.json({
+    status: 'ok',
+    patients: patients.size,
+    nurses: nurses.size,
+  });
+});
+
+server.listen(PORT, () => {
+  console.log(`✅ WebRTC signaling server running on port ${PORT}`);
+});
