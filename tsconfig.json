@@ -9,5 +9,5 @@
       "vite/client": ["node_modules/vite/client.d.ts"]
     }
   },
-  "include": ["login.tsx", "frontend/src/components/FaultyTerminal.d.ts"]
+  "include": ["frontend/src/components/FaultyTerminal.d.ts"]
 }

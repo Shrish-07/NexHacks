@@ -494,23 +494,94 @@ If emergency: {
             pendingRemoteCandidates.length = 0;
         }
 
+        function normalizeBaseUrl(value) {
+            if (!value || typeof value !== 'string') {
+                return null;
+            }
+            return value.trim().replace(/\/$/, '');
+        }
+
+        function readConfiguredBackendUrl() {
+            const globals = [
+                window.MONITOR_BACKEND_URL,
+                window.MONITOR_CONFIG && window.MONITOR_CONFIG.backendUrl,
+                document.body && document.body.getAttribute('data-backend-url'),
+            ];
+
+            for (const candidate of globals) {
+                const normalized = normalizeBaseUrl(candidate);
+                if (normalized) {
+                    return normalized;
+                }
+            }
+
+            const meta = document.querySelector('meta[name="monitor-backend-url"]');
+            if (meta) {
+                const normalized = normalizeBaseUrl(meta.getAttribute('content'));
+                if (normalized) {
+                    return normalized;
+                }
+            }
+
+            return null;
+        }
+
+        function readConfiguredWebsocketUrl() {
+            const globals = [
+                window.MONITOR_WEBSOCKET_URL,
+                window.MONITOR_CONFIG && (window.MONITOR_CONFIG.websocketUrl || window.MONITOR_CONFIG.wsUrl),
+                document.body && document.body.getAttribute('data-websocket-url'),
+            ];
+
+            for (const candidate of globals) {
+                const normalized = normalizeBaseUrl(candidate);
+                if (normalized) {
+                    return normalized;
+                }
+            }
+
+            const meta = document.querySelector('meta[name="monitor-websocket-url"]');
+            if (meta) {
+                const normalized = normalizeBaseUrl(meta.getAttribute('content'));
+                if (normalized) {
+                    return normalized;
+                }
+            }
+
+            return null;
+        }
+
         function getHttpBase() {
+            const configuredBackend = readConfiguredBackendUrl();
+            if (configuredBackend) {
+                return configuredBackend;
+            }
+
             const params = new URLSearchParams(window.location.search);
-            const backendParam = params.get('backend');
+            const backendParam = normalizeBaseUrl(params.get('backend'));
             if (backendParam) {
-                return backendParam.replace(/\/$/, '');
+                return backendParam;
             }
 
-            // When served from the backend origin itself, re-use the same host
-            if (window.location.origin.startsWith('http') && window.location.port === '3000') {
-                return window.location.origin;
+            if (window.location.origin.startsWith('http')) {
+                if (window.location.hostname && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+                    return window.location.origin;
+                }
+
+                if (window.location.port === '3000') {
+                    return window.location.origin;
+                }
             }
 
-            // Local dev fallback
             return 'http://localhost:3000';
         }
 
         function getWsUrl(httpBaseUrl) {
+            const configuredWs = readConfiguredWebsocketUrl();
+            if (configuredWs) {
+                return configuredWs;
+            }
+
             try {
                 const url = new URL(httpBaseUrl);
                 const scheme = url.protocol === 'https:' ? 'wss:' : 'ws:';

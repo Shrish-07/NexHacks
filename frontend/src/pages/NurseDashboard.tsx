@@ -779,22 +779,29 @@ export default function NurseDashboard() {
   );
 }
 
+function normalizeBaseUrl(url?: string | null) {
+  if (!url) {
+    return null;
+  }
+  return url.trim().replace(/\/$/, '');
+}
+
 function getHttpBase() {
-  const envUrl = import.meta.env.VITE_BACKEND_URL?.replace(/\/$/, '');
+  const envUrl = normalizeBaseUrl(import.meta.env.VITE_BACKEND_URL);
   if (envUrl) {
     return envUrl;
   }
 
   if (typeof window !== 'undefined') {
     const params = new URLSearchParams(window.location.search);
-    const backendParam = params.get('backend');
+    const backendParam = normalizeBaseUrl(params.get('backend'));
     if (backendParam) {
-      return backendParam.replace(/\/$/, '');
+      return backendParam;
     }
 
     if (window.location.origin.startsWith('http')) {
       if (window.location.port === '3000') {
-        return window.location.origin;
+        return normalizeBaseUrl(window.location.origin) ?? 'http://localhost:3000';
       }
     }
   }
@@ -803,6 +810,11 @@ function getHttpBase() {
 }
 
 function getWsUrl(httpBaseUrl: string) {
+  const envWsUrl = normalizeBaseUrl(import.meta.env.VITE_BACKEND_WS_URL);
+  if (envWsUrl) {
+    return envWsUrl;
+  }
+
   try {
     const url = new URL(httpBaseUrl);
     const scheme = url.protocol === 'https:' ? 'wss:' : 'ws:';
