@@ -1,0 +1,13 @@
+{
+  "extends": "./frontend/tsconfig.json",
+  "compilerOptions": {
+    "baseUrl": "./frontend",
+    "types": [],
+    "paths": {
+      "@/*": ["src/*"],
+      "vite/*": ["node_modules/vite/*"],
+      "vite/client": ["node_modules/vite/client.d.ts"]
+    }
+  },
+  "include": ["login.tsx", "frontend/src/components/FaultyTerminal.d.ts"]
+}

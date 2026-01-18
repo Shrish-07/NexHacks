@@ -1,0 +1,525 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Patient Monitor</title>
+    <style>
+        body {
+            font-family: 'Courier New', monospace;
+            background: #000;
+            color: #0f0;
+            padding: 20px;
+            line-height: 1.8;
+        }
+
+        h1 {
+            color: #0ff;
+            margin-bottom: 20px;
+        }
+
+        .status {
+            color: #0f0;
+            margin: 5px 0;
+        }
+
+        .alert-box {
+            color: #ff0000;
+            background: #330000;
+            padding: 20px;
+            margin: 20px 0;
+            border: 3px solid #ff0000;
+            animation: blink 1s infinite;
+        }
+
+        @keyframes blink {
+
+            0%,
+            50% {
+                border-color: #ff0000;
+            }
+
+            51%,
+            100% {
+                border-color: #660000;
+            }
+        }
+
+        .alert-title {
+            font-size: 24px;
+            margin-bottom: 10px;
+        }
+
+        .alert-details {
+            font-size: 14px;
+            line-height: 1.6;
+        }
+
+        #output {
+            margin-top: 20px;
+        }
+
+        .preview {
+            margin-top: 20px;
+            border: 1px solid #0f0;
+            padding: 10px;
+            border-radius: 8px;
+        }
+
+        .preview-label {
+            font-size: 14px;
+            margin-bottom: 8px;
+            color: #0ff;
+        }
+
+        #localPreview {
+            width: 100%;
+            max-width: 360px;
+            height: 200px;
+            background: #030303;
+            border: 1px solid #0f0;
+            object-fit: cover;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>🏥 PATIENT MONITORING SYSTEM</h1>
+    <div class="status">Patient ID: PATIENT_001</div>
+    <div class="status">Status: Initializing...</div>
+    <div id="output"></div>
+    <div class="preview">
+        <div class="preview-label">Camera Preview (local device)</div>
+        <video id="localPreview" autoplay muted playsinline></video>
+    </div>
+
+    <script type="module">
+        import { RealtimeVision } from 'https://esm.sh/@overshoot/sdk';
+
+        const output = document.getElementById('output');
+        const statusEls = document.querySelectorAll('.status');
+        const statusEl = statusEls[statusEls.length - 1] ?? null;
+        const previewVideo = document.getElementById('localPreview');
+
+        const PATIENT = {
+            patientId: 'PATIENT_001',
+            patientName: 'John Doe',
+            roomNumber: '305',
+        };
+
+        const ALERT_COOLDOWN = 10000; // ms
+        let vision;
+        let ws;
+        let lastAlertTime = 0;
+        let heartbeatTimer;
+        let cameraStream;
+        let peerConnection = null;
+        let currentNurseId = null;
+        const pendingRemoteCandidates = [];
+
+        const rtcConfig = {
+            iceServers: [
+                { urls: ['stun:stun.l.google.com:19302'] },
+            ],
+        };
+
+        const httpBase = getHttpBase();
+        const wsUrl = getWsUrl(httpBase);
+
+        bootstrap().catch((err) => {
+            console.error('Failed to start monitor', err);
+            updateStatus('Error initializing monitor');
+        });
+
+        async function bootstrap() {
+            updateStatus('Requesting camera access...');
+            cameraStream = await initCameraStream();
+
+            updateStatus('Fetching secure Overshoot config...');
+            const config = await fetchOvershootConfig();
+
+            updateStatus('Connecting to backend...');
+            connectWebSocket(config);
+        }
+
+        function connectWebSocket(config) {
+            ws = new WebSocket(wsUrl);
+
+            ws.onopen = async () => {
+                updateStatus('Connected to backend. Registering patient...');
+                ws.send(
+                    JSON.stringify({
+                        type: 'register_patient',
+                        ...PATIENT,
+                    })
+                );
+
+                await startVision(config);
+                startHeartbeat();
+                startVideoStreaming();
+            };
+
+            ws.onclose = () => {
+                stopHeartbeat();
+                stopVideoStreaming();
+                updateStatus('Disconnected from backend. Retrying in 3s...');
+                setTimeout(() => connectWebSocket(config), 3000);
+            };
+
+            ws.onmessage = (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    switch (data.type) {
+                        case 'webrtc_offer':
+                            handleWebRtcOffer(data);
+                            break;
+                        case 'webrtc_ice_candidate':
+                            handleRemoteIceCandidate(data);
+                            break;
+                        default:
+                            break;
+                    }
+                } catch (error) {
+                    console.error('Failed to parse incoming message', error);
+                }
+            };
+
+            ws.onerror = (error) => {
+                console.error('WebSocket error:', error);
+            };
+        }
+
+        async function fetchOvershootConfig() {
+            const response = await fetch(`${httpBase}/api/overshoot-config`);
+
+            if (!response.ok) {
+                throw new Error('Unable to fetch Overshoot config');
+            }
+
+            return response.json();
+        }
+
+        async function startVision(config) {
+            if (vision) {
+                await vision.stop();
+            }
+
+            vision = new RealtimeVision({
+                apiUrl: config.apiUrl,
+                apiKey: config.apiKey,
+                prompt: `You are an AI medical monitoring assistant analyzing video of a patient in real-time.
+
+CRITICAL CONDITIONS TO DETECT:
+
+1. CHOKING - Clutching throat, unable to breathe, distressed face, turning blue
+2. SEIZURE - Convulsions, loss of consciousness, jerking movements, rigid body
+3. FALL - Sudden drop in position, person on floor unexpectedly
+4. DISTRESS - Heavy breathing, holding chest, pain expression, calling for help
+
+RESPONSE FORMAT (JSON only):
+If normal: {"status": "normal"}
+
+If emergency: {
+  "status": "alert",
+  "condition": "CHOKING|SEIZURE|FALL|DISTRESS",
+  "confidence": 0.0-1.0,
+  "description": "what you see",
+  "urgency": "immediate|urgent|concerning"
+}`,
+                source: { type: 'camera', cameraFacing: 'user' },
+                outputSchema: {
+                    type: 'object',
+                    properties: {
+                        status: { type: 'string' },
+                        condition: { type: 'string' },
+                        confidence: { type: 'number' },
+                        description: { type: 'string' },
+                        urgency: { type: 'string' },
+                    },
+                },
+                onResult: handleVisionResult,
+            });
+
+            await vision.start();
+            console.log('✅ Monitoring active');
+            updateStatus('Active - Monitoring for emergencies');
+        }
+
+        function handleVisionResult(result) {
+            try {
+                const analysis = JSON.parse(result.result);
+
+                if (analysis.status === 'alert' && analysis.confidence >= 0.7) {
+                    const now = Date.now();
+                    if (now - lastAlertTime < ALERT_COOLDOWN) {
+                        return;
+                    }
+
+                    lastAlertTime = now;
+                    showAlert(analysis);
+                    sendAlertToBackend(analysis);
+                } else {
+                    updateStatus('Normal - Patient stable');
+                }
+            } catch (error) {
+                console.error('Failed to parse Overshoot result:', error);
+            }
+        }
+
+        function sendAlertToBackend(analysis) {
+            if (!ws || ws.readyState !== WebSocket.OPEN) {
+                console.warn('WebSocket not ready, skipping alert broadcast');
+                return;
+            }
+
+            ws.send(
+                JSON.stringify({
+                    type: 'alert',
+                    ...PATIENT,
+                    condition: analysis.condition,
+                    confidence: analysis.confidence,
+                    description: analysis.description,
+                    urgency: analysis.urgency,
+                })
+            );
+
+            console.log('🚨 Alert sent to backend', analysis);
+        }
+
+        function startHeartbeat() {
+            heartbeatTimer = setInterval(() => {
+                if (ws?.readyState === WebSocket.OPEN) {
+                    ws.send(
+                        JSON.stringify({
+                            type: 'heartbeat',
+                            patientId: PATIENT.patientId,
+                        })
+                    );
+                }
+            }, 10000);
+        }
+
+        function stopHeartbeat() {
+            if (heartbeatTimer) {
+                clearInterval(heartbeatTimer);
+                heartbeatTimer = null;
+            }
+        }
+
+        function updateStatus(text) {
+            if (!statusEl) {
+                console.warn('Status element missing, skipping status update');
+                return;
+            }
+
+            const timestamp = new Date().toLocaleTimeString();
+            statusEl.textContent = `Status: [${timestamp}] ${text}`;
+        }
+
+        function showAlert(analysis) {
+            const timestamp = new Date().toLocaleString();
+
+            const alertDiv = document.createElement('div');
+            alertDiv.className = 'alert-box';
+            alertDiv.innerHTML = `
+                <div class="alert-title">🚨🚨🚨 MEDICAL ALERT - NURSE ASSISTANCE REQUIRED 🚨🚨🚨</div>
+                <div class="alert-details">
+                    ═══════════════════════════════════════════════════════════════════<br>
+                    Patient ID:      ${PATIENT.patientId}<br>
+                    Condition:       ${analysis.condition}<br>
+                    Confidence:      ${(analysis.confidence * 100).toFixed(1)}%<br>
+                    Urgency:         ${analysis.urgency.toUpperCase()}<br>
+                    Time:            ${timestamp}<br>
+                    <br>
+                    Description:<br>
+                    ${analysis.description}<br>
+                    ═══════════════════════════════════════════════════════════════════<br>
+                    <br>
+                    📱 Notification sent to nurse station
+                </div>
+            `;
+
+            output.insertBefore(alertDiv, output.firstChild);
+
+            setTimeout(() => {
+                alertDiv.style.opacity = '0.3';
+            }, 30000);
+        }
+
+        window.addEventListener('beforeunload', async () => {
+            stopHeartbeat();
+            closePeerConnection();
+            stopCameraStream();
+            if (vision) {
+                await vision.stop();
+            }
+            ws?.close();
+        });
+
+        async function initCameraStream() {
+            if (!navigator.mediaDevices?.getUserMedia) {
+                throw new Error('Camera API unavailable');
+            }
+
+            const stream = await navigator.mediaDevices.getUserMedia({
+                video: {
+                    width: { ideal: 640 },
+                    height: { ideal: 360 },
+                    frameRate: { ideal: 15 },
+                },
+                audio: false,
+            });
+
+            if (previewVideo) {
+                previewVideo.srcObject = stream;
+                await previewVideo.play().catch(() => {});
+            }
+
+            return stream;
+        }
+
+        function stopCameraStream() {
+            cameraStream?.getTracks().forEach((track) => track.stop());
+            cameraStream = null;
+        }
+
+        async function handleWebRtcOffer(message) {
+            try {
+                if (!cameraStream) {
+                    cameraStream = await initCameraStream();
+                }
+
+                const pc = await setupPeerConnection(message.nurseId);
+                await pc.setRemoteDescription(new RTCSessionDescription(message.offer));
+                const answer = await pc.createAnswer();
+                await pc.setLocalDescription(answer);
+
+                ws?.send(
+                    JSON.stringify({
+                        type: 'webrtc_answer',
+                        patientId: PATIENT.patientId,
+                        nurseId: message.nurseId,
+                        answer,
+                    })
+                );
+
+                flushPendingRemoteCandidates();
+            } catch (error) {
+                console.error('Failed to process WebRTC offer', error);
+            }
+        }
+
+        async function setupPeerConnection(nurseId) {
+            if (peerConnection && currentNurseId === nurseId) {
+                return peerConnection;
+            }
+
+            closePeerConnection();
+
+            peerConnection = new RTCPeerConnection(rtcConfig);
+            currentNurseId = nurseId;
+
+            cameraStream?.getTracks().forEach((track) => {
+                peerConnection?.addTrack(track, cameraStream);
+            });
+
+            peerConnection.onicecandidate = (event) => {
+                if (event.candidate && ws?.readyState === WebSocket.OPEN) {
+                    ws.send(
+                        JSON.stringify({
+                            type: 'webrtc_ice_candidate',
+                            target: 'nurse',
+                            patientId: PATIENT.patientId,
+                            nurseId: currentNurseId,
+                            candidate: event.candidate,
+                        })
+                    );
+                }
+            };
+
+            peerConnection.onconnectionstatechange = () => {
+                if (!peerConnection) {
+                    return;
+                }
+
+                if (['failed', 'disconnected', 'closed'].includes(peerConnection.connectionState)) {
+                    console.warn('Peer connection state:', peerConnection.connectionState);
+                }
+            };
+
+            return peerConnection;
+        }
+
+        function handleRemoteIceCandidate(message) {
+            if (!message.candidate) {
+                return;
+            }
+
+            if (!peerConnection || !peerConnection.remoteDescription) {
+                pendingRemoteCandidates.push(message.candidate);
+                return;
+            }
+
+            peerConnection.addIceCandidate(new RTCIceCandidate(message.candidate)).catch((error) => {
+                console.error('Failed to add remote ICE candidate', error);
+            });
+        }
+
+        function flushPendingRemoteCandidates() {
+            if (!peerConnection || !peerConnection.remoteDescription) {
+                return;
+            }
+
+            while (pendingRemoteCandidates.length) {
+                const candidate = pendingRemoteCandidates.shift();
+                if (!candidate) {
+                    continue;
+                }
+
+                peerConnection.addIceCandidate(new RTCIceCandidate(candidate)).catch((error) => {
+                    console.error('Failed to add queued ICE candidate', error);
+                });
+            }
+        }
+
+        function closePeerConnection() {
+            if (peerConnection) {
+                peerConnection.onicecandidate = null;
+                peerConnection.onconnectionstatechange = null;
+                peerConnection.close();
+            }
+            peerConnection = null;
+            currentNurseId = null;
+            pendingRemoteCandidates.length = 0;
+        }
+
+        function getHttpBase() {
+            const params = new URLSearchParams(window.location.search);
+            const backendParam = params.get('backend');
+            if (backendParam) {
+                return backendParam.replace(/\/$/, '');
+            }
+
+            // When served from the backend origin itself, re-use the same host
+            if (window.location.origin.startsWith('http') && window.location.port === '3000') {
+                return window.location.origin;
+            }
+
+            // Local dev fallback
+            return 'http://localhost:3000';
+        }
+
+        function getWsUrl(httpBaseUrl) {
+            try {
+                const url = new URL(httpBaseUrl);
+                const scheme = url.protocol === 'https:' ? 'wss:' : 'ws:';
+                return `${scheme}//${url.host}`;
+            } catch {
+                return 'ws://localhost:3000';
+            }
+        }
+    </script>
+</body>
+
+</html>

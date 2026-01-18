@@ -4,6 +4,7 @@ streamlit
 requests
 python-dotenv
 pydantic
+pydantic-settings
 websockets
 torch
 opencv-python
