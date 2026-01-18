@@ -30,8 +30,8 @@ type ConnectionState = 'connecting' | 'connected' | 'disconnected';
 
 type LoopFeed = {
   id: string;
-  title: string;
-  location: string;
+  patientName: string;
+  roomNumber: string;
   status: string;
   src: string;
   metrics: { label: string; value: string }[];
@@ -55,9 +55,9 @@ const DEFAULT_ICE_SERVERS: RTCIceServer[] = [
 const LOOP_FEEDS: LoopFeed[] = [
   {
     id: 'north-wing',
-    title: 'North Wing Recovery',
-    location: 'Rooms 12A-12D',
-    status: 'Telemetry stable',
+    patientName: 'Rayhan',
+    roomNumber: '42B',
+    status: 'Neuro obs · calm',
     src: northWingFeed,
     metrics: [
       { label: 'Ambient Temp', value: '21.3°C' },
@@ -66,9 +66,9 @@ const LOOP_FEEDS: LoopFeed[] = [
   },
   {
     id: 'south-wing',
-    title: 'South ICU Overwatch',
-    location: 'Isolation bays 4-6',
-    status: 'Respiratory support engaged',
+    patientName: 'Sourish',
+    roomNumber: '17C',
+    status: 'Resp support · steady',
     src: southWingFeed,
     metrics: [
       { label: 'Humidity', value: '38%' },
@@ -658,16 +658,10 @@ export default function NurseDashboard() {
                           )}
                         </div>
 
-                        <div className="grid grid-cols-2 gap-3 text-sm text-slate-300">
+                        <div className="grid grid-cols-1 gap-3 text-sm text-slate-300">
                           <div className="rounded-2xl border border-white/10 bg-white/5 px-3 py-2">
                             <p className="text-[11px] uppercase tracking-wide text-slate-400">Status</p>
                             <p className="font-semibold text-white">{patient.status ?? 'Active'}</p>
-                          </div>
-                          <div className="rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-right">
-                            <p className="text-[11px] uppercase tracking-wide text-slate-400">Last heartbeat</p>
-                            <p className="font-semibold text-white">
-                              {patient.lastHeartbeat ? new Date(patient.lastHeartbeat).toLocaleTimeString() : '—'}
-                            </p>
                           </div>
                         </div>
 
@@ -696,8 +690,8 @@ export default function NurseDashboard() {
                     <div className="relative space-y-4">
                       <div className="flex items-center justify-between">
                         <div>
-                          <p className="text-sm text-slate-300">{feed.location}</p>
-                          <p className="text-xl font-semibold">{feed.title}</p>
+                          <p className="text-sm text-slate-300">Room {feed.roomNumber}</p>
+                          <p className="text-xl font-semibold">{feed.patientName}</p>
                         </div>
                         <div className="flex flex-col items-end gap-2">
                           <span className="px-3 py-1 rounded-full text-[11px] font-semibold tracking-wide border bg-cyan-500/20 text-cyan-100 border-cyan-500/40">
@@ -859,18 +853,10 @@ export default function NurseDashboard() {
             )}
           </div>
 
-          <div className="grid grid-cols-2 gap-3 text-sm text-slate-300">
+          <div className="grid grid-cols-1 gap-3 text-sm text-slate-300">
             <div className="rounded-2xl border border-white/10 bg-white/5 px-3 py-2">
               <p className="text-[10px] uppercase tracking-wide text-slate-400">Status</p>
               <p className="text-lg font-semibold text-white">{focusedPatient.status ?? 'Monitoring'}</p>
-            </div>
-            <div className="rounded-2xl border border-white/10 bg-white/5 px-3 py-2">
-              <p className="text-[10px] uppercase tracking-wide text-slate-400">Heartbeat</p>
-              <p className="text-lg font-semibold text-white">
-                {focusedPatient.lastHeartbeat
-                  ? new Date(focusedPatient.lastHeartbeat).toLocaleTimeString()
-                  : 'Awaiting…'}
-              </p>
             </div>
           </div>
         </div>
