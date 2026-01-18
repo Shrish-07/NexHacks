@@ -124,18 +124,11 @@ For a deeper dive, explore the code:
 - Modular architecture for rapid prototyping and debugging in hackathons.
 - Balancing innovation with ethical considerations like privacy and bias in AI.
 
-## 🚀 What's Next
-
-- Integrate multimodal AI (e.g., facial recognition for pain detection + audio cues).
-- Partner with hospitals for real-world pilots and HIPAA-compliant cloud storage.
-- Add voice-enabled interactions via LiveKit for nurse-patient communication.
-- Expand to environmental monitoring (e.g., overshoot detection in resource usage) for broader "TURING CITY" applications.
-
 ## 👥 Contributors
 
-- Sourish Mudumby Venugopal
-- Rayhan Mohamed
-- Shrish Mudumby Venugopal
+- [Sourish-07](https://github.com/Sourish-07)
+- [ICYBAWSS](https://github.com/ICYBAWSS)
+- [Shrish-07](https://github.com/Shrish-07)
 
 Join us in building a safer, smarter healthcare future! For questions, open an issue or reach out on Devpost.
 
