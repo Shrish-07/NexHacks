@@ -246,25 +246,59 @@ If emergency: {
             updateStatus('Active - Monitoring for emergencies');
         }
 
-        function handleVisionResult(result) {
-            try {
-                const analysis = JSON.parse(result.result);
-
-                if (analysis.status === 'alert' && analysis.confidence >= 0.7) {
-                    const now = Date.now();
-                    if (now - lastAlertTime < ALERT_COOLDOWN) {
-                        return;
-                    }
-
-                    lastAlertTime = now;
-                    showAlert(analysis);
-                    sendAlertToBackend(analysis);
-                } else {
-                    updateStatus('Normal - Patient stable');
-                }
-            } catch (error) {
-                console.error('Failed to parse Overshoot result:', error);
+        function normalizeVisionOutput(result) {
+            if (!result) {
+                return null;
             }
+
+            const candidates = [
+                result.output,
+                result.result,
+                result.payload,
+            ];
+
+            for (const candidate of candidates) {
+                if (!candidate) {
+                    continue;
+                }
+
+                if (typeof candidate === 'string') {
+                    try {
+                        return JSON.parse(candidate);
+                    } catch {
+                        continue;
+                    }
+                } else if (typeof candidate === 'object') {
+                    return candidate;
+                }
+            }
+
+            console.warn('RealtimeVision emitted unsupported payload', result);
+            return null;
+        }
+
+        function handleVisionResult(result) {
+            const analysis = normalizeVisionOutput(result);
+            if (!analysis) {
+                return;
+            }
+
+            const status = (analysis.status || '').toLowerCase();
+            const confidence = Number(analysis.confidence || 0);
+
+            if (['alert', 'critical', 'emergency'].includes(status) && confidence >= 0.7) {
+                const now = Date.now();
+                if (now - lastAlertTime < ALERT_COOLDOWN) {
+                    return;
+                }
+
+                lastAlertTime = now;
+                showAlert(analysis);
+                sendAlertToBackend(analysis);
+                return;
+            }
+
+            updateStatus('Normal - Patient stable');
         }
 
         function sendAlertToBackend(analysis) {
