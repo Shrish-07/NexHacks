@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Activity, AlertTriangle, Video, HeartPulse, Shield, Wifi } from 'lucide-react';
+import { Activity, AlertTriangle, Video, HeartPulse, Shield, Wifi, Radar } from 'lucide-react';
 import FaultyTerminal from '../components/FaultyTerminal';
+import northWingFeed from '../../loop_vids/feed_north.mp4';
+import southWingFeed from '../../loop_vids/feed_south.mp4';
 
 type Patient = {
   patientId: string;
@@ -26,10 +28,54 @@ type Alert = {
 
 type ConnectionState = 'connecting' | 'connected' | 'disconnected';
 
-const NURSE_ID = 'NURSE_001';
-const RTC_CONFIG: RTCConfiguration = {
-  iceServers: [{ urls: ['stun:stun.l.google.com:19302'] }],
+type LoopFeed = {
+  id: string;
+  title: string;
+  location: string;
+  status: string;
+  src: string;
+  metrics: { label: string; value: string }[];
 };
+
+const NURSE_ID = 'NURSE_001';
+const DEFAULT_ICE_SERVERS: RTCIceServer[] = [
+  { urls: ['stun:stun.l.google.com:19302'] },
+  {
+    urls: [
+      'turn:openrelay.metered.ca:80?transport=udp',
+      'turn:openrelay.metered.ca:443?transport=tcp',
+      'turns:openrelay.metered.ca:443?transport=tcp',
+    ],
+    username: 'openrelayproject',
+    credential: 'openrelayproject',
+  },
+];
+
+// Local looping videos stand in for real feeds when backend streaming is unavailable.
+const LOOP_FEEDS: LoopFeed[] = [
+  {
+    id: 'north-wing',
+    title: 'North Wing Recovery',
+    location: 'Rooms 12A-12D',
+    status: 'Telemetry stable',
+    src: northWingFeed,
+    metrics: [
+      { label: 'Ambient Temp', value: '21.3°C' },
+      { label: 'Noise Floor', value: '32 dB' },
+    ],
+  },
+  {
+    id: 'south-wing',
+    title: 'South ICU Overwatch',
+    location: 'Isolation bays 4-6',
+    status: 'Respiratory support engaged',
+    src: southWingFeed,
+    metrics: [
+      { label: 'Humidity', value: '38%' },
+      { label: 'Vitals Mirror', value: 'Synced' },
+    ],
+  },
+];
 
 export default function NurseDashboard() {
   const [patients, setPatients] = useState<Map<string, Patient>>(new Map());
@@ -48,6 +94,7 @@ export default function NurseDashboard() {
 
   const httpBase = useMemo(() => getHttpBase(), []);
   const wsUrl = useMemo(() => getWsUrl(httpBase), [httpBase]);
+  const rtcConfig = useMemo(() => buildNurseRtcConfig(), []);
 
   useEffect(() => {
     connectToBackend();
@@ -216,7 +263,7 @@ export default function NurseDashboard() {
       peerConnections.current.delete(patientId);
     }
 
-    const pc = new RTCPeerConnection(RTC_CONFIG);
+    const pc = new RTCPeerConnection(rtcConfig);
     peerConnections.current.set(patientId, pc);
 
     pc.ontrack = (event) => {
@@ -534,6 +581,75 @@ export default function NurseDashboard() {
           })}
         </section>
 
+        <section className="relative rounded-3xl border border-white/10 bg-slate-900/80 backdrop-blur-xl p-6 shadow-[0_30px_80px_rgba(15,23,42,0.55)] overflow-hidden">
+          <div
+            className="absolute inset-0 bg-gradient-to-br from-cyan-500/10 via-transparent to-blue-500/10 opacity-80"
+            aria-hidden="true"
+          />
+          <div className="relative z-10 space-y-6">
+            <div className="flex flex-wrap items-center justify-between gap-4">
+              <div className="flex items-center gap-4">
+                <span className="w-12 h-12 rounded-2xl border border-white/10 bg-white/5 flex items-center justify-center shadow-inner shadow-cyan-500/20">
+                  <Radar className="w-6 h-6 text-cyan-200" />
+                </span>
+                <div>
+                  <p className="text-xs text-cyan-200 uppercase tracking-[0.4em]">Facility channels</p>
+                  <h2 className="text-3xl font-bold">Looped Live Feeds</h2>
+                </div>
+              </div>
+              <span className="text-sm text-slate-300">Simulated feeds for demo mode</span>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2">
+              {LOOP_FEEDS.map((feed) => (
+                <article
+                  key={feed.id}
+                  className="relative overflow-hidden rounded-3xl border border-white/10 bg-slate-950/70 backdrop-blur-xl p-5 shadow-[0_25px_60px_rgba(15,23,42,0.4)] space-y-4"
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <p className="text-sm text-slate-300">{feed.location}</p>
+                      <p className="text-xl font-semibold text-white">{feed.title}</p>
+                    </div>
+                    <span className="px-3 py-1 rounded-full text-[11px] font-semibold tracking-wide border border-cyan-400/40 text-cyan-100 bg-cyan-500/10">
+                      Looped feed
+                    </span>
+                  </div>
+
+                  <div className="relative h-56 rounded-2xl border border-white/10 bg-black/60 overflow-hidden">
+                    <video
+                      className="w-full h-full object-cover"
+                      src={feed.src}
+                      muted
+                      playsInline
+                      loop
+                      autoPlay
+                      preload="auto"
+                    />
+                    <div className="absolute top-3 right-3 px-3 py-1 rounded-full text-[10px] font-semibold border border-white/10 bg-black/40 backdrop-blur text-white/80">
+                      Live loop
+                    </div>
+                  </div>
+
+                  <p className="text-sm text-slate-300 leading-relaxed">{feed.status}</p>
+
+                  <div className="grid grid-cols-2 gap-3 text-sm text-slate-300">
+                    {feed.metrics.map((metric) => (
+                      <div
+                        key={`${feed.id}-${metric.label}`}
+                        className="rounded-2xl border border-white/10 bg-white/5 px-3 py-2"
+                      >
+                        <p className="text-[11px] uppercase tracking-wide text-slate-400">{metric.label}</p>
+                        <p className="text-lg font-semibold text-white">{metric.value}</p>
+                      </div>
+                    ))}
+                  </div>
+                </article>
+              ))}
+            </div>
+          </div>
+        </section>
+
         <div className="grid gap-6 xl:grid-cols-[2fr_1fr]">
           <section className="relative rounded-3xl border border-white/10 bg-slate-900/80 backdrop-blur-xl p-6 shadow-[0_30px_80px_rgba(15,23,42,0.55)] overflow-hidden">
             <div
@@ -822,4 +938,160 @@ function getWsUrl(httpBaseUrl: string) {
   } catch {
     return 'ws://localhost:3000';
   }
+}
+
+type IceServerSource = string | string[] | RTCIceServer | RTCIceServer[] | null | undefined;
+
+function buildNurseRtcConfig(): RTCConfiguration {
+  const resolved = resolveNurseIceServers();
+  const deduped = dedupeIceServers(resolved);
+  const limited = deduped.slice(0, 4);
+  return { iceServers: limited.length ? limited : DEFAULT_ICE_SERVERS };
+}
+
+function resolveNurseIceServers(): RTCIceServer[] {
+  const envConfig = getEnvTurnConfig();
+  const windowObj = typeof window !== 'undefined' ? window : null;
+  const documentObj = typeof document !== 'undefined' ? document : null;
+  const params = windowObj ? new URLSearchParams(windowObj.location.search) : null;
+
+  const sources: IceServerSource[] = [
+    envConfig,
+    windowObj && (windowObj as any).NURSE_DASHBOARD_CONFIG?.iceServers,
+    windowObj && (windowObj as any).NURSE_DASHBOARD_CONFIG?.turnServers,
+    documentObj?.body?.getAttribute('data-turn-servers'),
+    params?.get('turn'),
+  ];
+
+  for (const source of sources) {
+    const parsed = parseIceServers(source);
+    if (parsed.length) {
+      return parsed;
+    }
+  }
+
+  return [];
+}
+
+function getEnvTurnConfig(): string | undefined {
+  const env = import.meta.env as Record<string, string | undefined>;
+  return env.VITE_NURSE_TURN_SERVERS ?? env.VITE_TURN_SERVERS;
+}
+
+function parseIceServers(value: IceServerSource): RTCIceServer[] {
+  if (!value) {
+    return [];
+  }
+
+  if (Array.isArray(value)) {
+    return value
+      .map((entry) => normalizeIceServer(entry))
+      .filter((entry): entry is RTCIceServer => entry !== null);
+  }
+
+  if (typeof value === 'object') {
+    const normalized = normalizeIceServer(value);
+    return normalized ? [normalized] : [];
+  }
+
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return [];
+    }
+
+    if (trimmed.startsWith('[') || trimmed.startsWith('{')) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        return parseIceServers(parsed);
+      } catch (error) {
+        console.warn('[NurseDashboard] Failed to parse TURN config JSON', error);
+        return [];
+      }
+    }
+
+    const urls = normalizeUrlsArray(trimmed);
+    return urls.length ? [{ urls }] : [];
+  }
+
+  return [];
+}
+
+function normalizeIceServer(entry: any): RTCIceServer | null {
+  if (!entry) {
+    return null;
+  }
+
+  if (typeof entry === 'string') {
+    return { urls: entry };
+  }
+
+  if (Array.isArray(entry)) {
+    const urls = entry.map((url) => url?.trim()).filter(Boolean);
+    return urls.length ? { urls } : null;
+  }
+
+  if (typeof entry === 'object') {
+    const urls = entry.urls || entry.url;
+    const normalizedUrls = normalizeUrlsArray(urls);
+    if (!normalizedUrls.length) {
+      return null;
+    }
+
+    const server: RTCIceServer = { urls: normalizedUrls.length === 1 ? normalizedUrls[0] : normalizedUrls };
+    if (entry.username) {
+      server.username = entry.username;
+    }
+    if (entry.credential) {
+      server.credential = entry.credential;
+    }
+    return server;
+  }
+
+  return null;
+}
+
+function normalizeUrlsArray(candidate: unknown): string[] {
+  if (!candidate) {
+    return [];
+  }
+
+  if (Array.isArray(candidate)) {
+    return candidate.map((url) => (typeof url === 'string' ? url.trim() : '')).filter(Boolean);
+  }
+
+  if (typeof candidate === 'string') {
+    return candidate
+      .split(',')
+      .map((url) => url.trim())
+      .filter(Boolean);
+  }
+
+  return [];
+}
+
+function dedupeIceServers(servers: RTCIceServer[]): RTCIceServer[] {
+  const seen = new Set<string>();
+  const result: RTCIceServer[] = [];
+
+  servers.forEach((server) => {
+    const urls = normalizeUrlsArray(server.urls);
+    if (!urls.length) {
+      return;
+    }
+
+    const key = `${urls.sort().join('|')}|${server.username || ''}|${server.credential || ''}`;
+    if (seen.has(key)) {
+      return;
+    }
+
+    seen.add(key);
+    result.push({
+      urls: urls.length === 1 ? urls[0] : urls,
+      username: server.username,
+      credential: server.credential,
+    });
+  });
+
+  return result;
 }
