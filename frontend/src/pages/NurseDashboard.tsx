@@ -3,6 +3,7 @@ import { Activity, AlertTriangle, Video, HeartPulse, Shield, Wifi } from 'lucide
 import FaultyTerminal from '../components/FaultyTerminal';
 import northWingFeed from '../../loop_vids/feed_north.mp4';
 import southWingFeed from '../../loop_vids/feed_south.mp4';
+import johnDoeFeed from '../../loop_vids/feed_john.mp4';
 
 type Patient = {
   patientId: string;
@@ -34,6 +35,7 @@ type LoopFeed = {
   roomNumber: string;
   status: string;
   src: string;
+  patientCamera?: boolean;
   metrics: { label: string; value: string }[];
 };
 
@@ -54,14 +56,27 @@ const DEFAULT_ICE_SERVERS: RTCIceServer[] = [
 // Local looping videos stand in for real feeds when backend streaming is unavailable.
 const LOOP_FEEDS: LoopFeed[] = [
   {
+    id: 'john-doe',
+    patientName: 'John Doe',
+    roomNumber: '305',
+    status: 'Neuro cam · calibrated',
+    src: johnDoeFeed,
+    patientCamera: false,
+    metrics: [
+      { label: 'Vitals Mirror', value: 'Synced' },
+      { label: 'Last Alert', value: 'Cleared' },
+    ],
+  },
+  {
     id: 'north-wing',
     patientName: 'Rayhan',
     roomNumber: '42B',
     status: 'Neuro obs · calm',
     src: northWingFeed,
+    patientCamera: true,
     metrics: [
-      { label: 'Ambient Temp', value: '21.3°C' },
-      { label: 'Noise Floor', value: '32 dB' },
+      { label: 'O₂ Sat', value: '98%' },
+      { label: 'Resp Rate', value: '14/min' },
     ],
   },
   {
@@ -70,9 +85,10 @@ const LOOP_FEEDS: LoopFeed[] = [
     roomNumber: '17C',
     status: 'Resp support · steady',
     src: southWingFeed,
+    patientCamera: true,
     metrics: [
-      { label: 'Humidity', value: '38%' },
-      { label: 'Vitals Mirror', value: 'Synced' },
+      { label: 'Breath Assist', value: '40% FiO₂' },
+      { label: 'SpO₂ Trend', value: 'Holding' },
     ],
   },
 ];
@@ -695,7 +711,7 @@ export default function NurseDashboard() {
                         </div>
                         <div className="flex flex-col items-end gap-2">
                           <span className="px-3 py-1 rounded-full text-[11px] font-semibold tracking-wide border bg-cyan-500/20 text-cyan-100 border-cyan-500/40">
-                            Facility camera
+                            {feed.patientCamera ? 'Looped patient feed' : 'Facility camera'}
                           </span>
                           <span className="text-xs text-slate-300">{feed.status}</span>
                         </div>
