@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Activity, AlertTriangle, Video, HeartPulse, Shield, Wifi } from 'lucide-react';
 import FaultyTerminal from '../components/FaultyTerminal';
-import northWingFeed from '../../loop_vids/feed_north.mp4';
-import southWingFeed from '../../loop_vids/feed_south.mp4';
+import northWingFeed from '../../loop_vids/feed_north.png';
+import southWingFeed from '../../loop_vids/feed_south.png';
 import johnDoeFeed from '../../loop_vids/feed_john.mp4';
 
 type Patient = {
@@ -35,6 +35,7 @@ type LoopFeed = {
   roomNumber: string;
   status: string;
   src: string;
+  isImage?: boolean;
   patientCamera?: boolean;
   metrics: { label: string; value: string }[];
 };
@@ -61,6 +62,7 @@ const LOOP_FEEDS: LoopFeed[] = [
     roomNumber: '305',
     status: 'Neuro cam · calibrated',
     src: johnDoeFeed,
+    isImage: false,
     patientCamera: false,
     metrics: [
       { label: 'Vitals Mirror', value: 'Synced' },
@@ -73,6 +75,7 @@ const LOOP_FEEDS: LoopFeed[] = [
     roomNumber: '42B',
     status: 'Neuro obs · calm',
     src: northWingFeed,
+    isImage: true,
     patientCamera: true,
     metrics: [
       { label: 'O₂ Sat', value: '98%' },
@@ -85,6 +88,7 @@ const LOOP_FEEDS: LoopFeed[] = [
     roomNumber: '17C',
     status: 'Resp support · steady',
     src: southWingFeed,
+    isImage: true,
     patientCamera: true,
     metrics: [
       { label: 'Breath Assist', value: '40% FiO₂' },
@@ -718,15 +722,23 @@ export default function NurseDashboard() {
                       </div>
 
                       <div className="relative h-44 rounded-2xl border border-white/10 bg-black/40 overflow-hidden">
-                        <video
-                          className="w-full h-full object-cover"
-                          src={feed.src}
-                          muted
-                          playsInline
-                          loop
-                          autoPlay
-                          preload="auto"
-                        />
+                        {feed.isImage ? (
+                          <img
+                            className="w-full h-full object-cover"
+                            src={feed.src}
+                            alt={`${feed.patientName} feed`}
+                          />
+                        ) : (
+                          <video
+                            className="w-full h-full object-cover"
+                            src={feed.src}
+                            muted
+                            playsInline
+                            loop
+                            autoPlay
+                            preload="auto"
+                          />
+                        )}
                         <div className="absolute top-3 right-3 px-3 py-1 rounded-full text-[10px] font-semibold border border-white/10 bg-black/40 backdrop-blur text-white/80">
                           Live uplink
                         </div>
