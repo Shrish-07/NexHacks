@@ -69,8 +69,18 @@ wss.on('connection', (ws) => {
       case 'register_patient': {
         ws.role = 'patient';
         ws.patientId = data.patientId;
+        ws.patientName = data.patientName;
+        ws.roomNumber = data.roomNumber;
         patients.set(data.patientId, ws);
-        console.log('[WS] Patient registered:', data.patientId);
+        console.log('[WS] Patient registered:', data.patientId, data.patientName, 'Room', data.roomNumber);
+
+        // Broadcast to all nurses
+        broadcastToNurses({
+          type: 'patient_connected',
+          patientId: data.patientId,
+          patientName: data.patientName,
+          roomNumber: data.roomNumber,
+        });
         break;
       }
 
@@ -129,7 +139,7 @@ wss.on('connection', (ws) => {
         break;
       }
 
-      // ---------- STREAM REQUEST ----------
+      // ---------- STREAM REQUEST (NURSE → PATIENT) ----------
       case 'request_stream': {
         if (ws.role !== 'nurse') return;
 
@@ -144,51 +154,55 @@ wss.on('connection', (ws) => {
           nurseId: ws.nurseId,
         });
 
-        console.log('[WS] Nurse requested stream:', data.patientId);
+        console.log('[WS] Stream request → patient', data.patientId);
         break;
       }
 
-      // ---------- OFFER (NURSE ONLY) ----------
+      // ---------- OFFER (PATIENT ONLY) ----------
       case 'webrtc_offer': {
-        if (ws.role !== 'nurse') return;
-
-        const patientWs = patients.get(data.patientId);
-        if (!patientWs) return;
-
-        send(patientWs, {
-          type: 'webrtc_offer',
-          offer: data.offer,
-          nurseId: ws.nurseId,
-        });
-
-        console.log('[WS] Offer → patient', data.patientId);
-        break;
-      }
-
-      // ---------- ANSWER (PATIENT ONLY) ----------
-      case 'webrtc_answer': {
         if (ws.role !== 'patient') return;
 
         const nurseWs = nurses.get(data.nurseId);
         if (!nurseWs) return;
 
         send(nurseWs, {
-          type: 'webrtc_answer',
-          answer: data.answer,
+          type: 'webrtc_offer',
+          offer: data.offer,
           patientId: ws.patientId,
+          patientName: ws.patientName,
+          roomNumber: ws.roomNumber,
         });
 
-        console.log('[WS] Answer → nurse', data.nurseId);
+        console.log('[WS] Offer → nurse', data.nurseId);
+        break;
+      }
+
+      // ---------- ANSWER (NURSE ONLY) ----------
+      case 'webrtc_answer': {
+        if (ws.role !== 'nurse') return;
+
+        const patientWs = patients.get(data.patientId);
+        if (!patientWs) return;
+
+        send(patientWs, {
+          type: 'webrtc_answer',
+          answer: data.answer,
+          nurseId: ws.nurseId,
+        });
+
+        console.log('[WS] Answer → patient', data.patientId);
         break;
       }
 
       // ---------- ICE ----------
       case 'webrtc_ice_candidate': {
         if (data.target === 'patient') {
-          send(patients.get(data.patientId), data);
+          const patientWs = patients.get(data.patientId);
+          if (patientWs) send(patientWs, data);
         }
         if (data.target === 'nurse') {
-          send(nurses.get(data.nurseId), data);
+          const nurseWs = nurses.get(data.nurseId);
+          if (nurseWs) send(nurseWs, data);
         }
         break;
       }
@@ -211,6 +225,72 @@ wss.on('connection', (ws) => {
 });
 
 // ---------------- HTTP ENDPOINTS ----------------
+
+// Alert endpoint for voice/video/Overshoot detection
+app.post('/alert', (req, res) => {
+  const { room, event, transcript, severity, source } = req.body;
+  
+  console.log('📨 [ALERT] Received alert request:', { room, event, transcript, source, severity });
+  
+  if (!room) {
+    console.log('❌ [ALERT] No room provided');
+    return res.status(400).json({ error: 'Room is required' });
+  }
+
+  // Find patient in this room
+  let patientId = null;
+  let patientName = null;
+  let roomNumber = null;
+
+  console.log('🔍 [ALERT] Searching for patient in room:', room);
+  console.log('📋 [ALERT] Available patients:', Array.from(patients.entries()).map(([id, ws]) => ({ id, room: ws.roomNumber })));
+
+  for (const [pId, ws] of patients) {
+    if (ws.roomNumber === room || ws.roomNumber === room.toString()) {
+      patientId = pId;
+      patientName = ws.patientName;
+      roomNumber = ws.roomNumber;
+      console.log('✅ [ALERT] Found patient:', { patientId, patientName, roomNumber });
+      break;
+    }
+  }
+
+  if (!patientId) {
+    console.log('❌ [ALERT] No patient found in room:', room);
+    return res.status(404).json({ error: 'Patient not found in room' });
+  }
+
+  // Create alert object
+  const alert = {
+    id: `alert_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+    patientId,
+    patientName,
+    roomNumber,
+    condition: event || 'DISTRESS_DETECTED',
+    confidence: 0.95,
+    description: transcript || 'Patient distress detected by voice analysis',
+    urgency: severity || 'high',
+    source: source || 'voice',
+    transcript: transcript || null,
+    timestamp: new Date().toISOString(),
+    acknowledged: false,
+  };
+
+  alerts.push(alert);
+  if (alerts.length > MAX_ALERT_HISTORY) {
+    alerts.shift();
+  }
+
+  // Broadcast to all nurses
+  console.log('📢 [ALERT] Broadcasting to', nurses.size, 'nurses');
+  broadcastToNurses({
+    type: 'new_alert',
+    alert,
+  });
+
+  console.log(`🚨 [ALERT] ${source || 'VOICE'}: ${event} - Room ${room} - ${patientName}`);
+  res.json({ success: true, alert });
+});
 
 app.get('/api/patients', (_req, res) => {
   const patientList = Array.from(patients.keys()).map(patientId => ({
@@ -241,6 +321,55 @@ app.post('/api/alerts/:alertId/acknowledge', (req, res) => {
   });
 
   return res.json({ success: true });
+});
+
+// Overshoot/Video alert endpoint for falling, choking, seizures
+app.post('/api/overshoot-alert', (req, res) => {
+  const { patientId, roomNumber, condition, confidence, description } = req.body;
+  
+  console.log('📨 [OVERSHOOT] Alert received:', { patientId, roomNumber, condition, confidence });
+  
+  if (!patientId || !roomNumber) {
+    console.log('❌ [OVERSHOOT] Missing required fields');
+    return res.status(400).json({ error: 'patientId and roomNumber are required' });
+  }
+
+  // Find patient
+  const patientWs = patients.get(patientId);
+  if (!patientWs) {
+    console.log('❌ [OVERSHOOT] Patient not found:', patientId);
+    return res.status(404).json({ error: 'Patient not found' });
+  }
+
+  // Create alert object
+  const alert = {
+    id: `alert_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+    patientId,
+    patientName: patientWs.patientName,
+    roomNumber,
+    condition: condition || 'OVERSHOOT_DETECTION',
+    confidence: confidence || 0.9,
+    description: description || 'Patient activity detected by Overshoot biosensor network',
+    urgency: confidence > 0.85 ? 'critical' : 'high',
+    source: 'overshoot',
+    timestamp: new Date().toISOString(),
+    acknowledged: false,
+  };
+
+  alerts.push(alert);
+  if (alerts.length > MAX_ALERT_HISTORY) {
+    alerts.shift();
+  }
+
+  // Broadcast to all nurses
+  console.log('📢 [OVERSHOOT] Broadcasting to', nurses.size, 'nurses');
+  broadcastToNurses({
+    type: 'new_alert',
+    alert,
+  });
+
+  console.log(`✅ [OVERSHOOT] ${condition} - ${patientWs.patientName} (Room ${roomNumber}) - Confidence: ${confidence}`);
+  res.json({ success: true, alert });
 });
 
 // ============ LIVEKIT TOKEN ENDPOINT ============
@@ -380,6 +509,38 @@ app.get('/api/overshoot-config', (_req, res) => {
     apiKey: process.env.OVERSHOOT_API_KEY,
     apiUrl: OVERSHOOT_API_URL,
   });
+});
+
+// Check Overshoot for active alerts on a patient
+app.post('/api/check-overshoot', async (req, res) => {
+  const { patientId, roomNumber } = req.body;
+  
+  console.log('🔍 [OVERSHOOT] Checking for active alerts:', { patientId, roomNumber });
+  
+  if (!patientId || !roomNumber) {
+    return res.status(400).json({ error: 'patientId and roomNumber required' });
+  }
+
+  try {
+    // In production, this would call Overshoot API:
+    // const response = await fetch(`${OVERSHOOT_API_URL}/alerts/${patientId}`, {
+    //   headers: { 'Authorization': `Bearer ${process.env.OVERSHOOT_API_KEY}` }
+    // });
+    // For now, return mock data that can be tested
+    
+    console.log('📡 [OVERSHOOT] Would fetch from: ' + OVERSHOOT_API_URL);
+    console.log('🔑 [OVERSHOOT] Using API Key (first 10 chars): ' + (process.env.OVERSHOOT_API_KEY || 'NOT SET').substring(0, 10));
+    
+    res.json({
+      status: 'configured',
+      apiUrl: OVERSHOOT_API_URL,
+      apiKeySet: !!process.env.OVERSHOOT_API_KEY,
+      message: 'Ready to receive Overshoot alerts'
+    });
+  } catch (error) {
+    console.error('❌ [OVERSHOOT] Error checking alerts:', error.message);
+    res.status(500).json({ error: 'Failed to check Overshoot alerts' });
+  }
 });
 
 app.get('/health', (_req, res) => {

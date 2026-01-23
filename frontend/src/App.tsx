@@ -1,38 +1,53 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Routes, Route, useNavigate } from 'react-router-dom';
+import { Routes, Route, useNavigate, Navigate } from 'react-router-dom';
 import { Eye, Shield, Activity, ArrowRight, Sparkles, Heart, Zap, Wifi, ChevronRight } from 'lucide-react';
 // @ts-ignore
 import FaultyTerminal from './components/FaultyTerminal';
 import LoginPage from './pages/LoginPage';
 import NurseDashboard from './pages/NurseDashboard';
+import PatientDashboard from './pages/PatientDashboard';
+import authService from './services/authService';
 
 type ActiveButton = 'login' | 'start' | 'demo' | 'trial' | null;
+
+// Protected Route Component
+function ProtectedRoute({ children, requiredRole }: { children: React.ReactNode; requiredRole?: 'patient' | 'nurse' }) {
+  const user = authService.getCurrentUser();
+  
+  if (!user) {
+    return <Navigate to="/login" replace />;
+  }
+  
+  if (requiredRole && user.role !== requiredRole) {
+    return <Navigate to="/login" replace />;
+  }
+  
+  return <>{children}</>;
+}
 
 export default function App() {
   return (
     <Routes>
       <Route path="/" element={<AttuneHomepage />} />
       <Route path="/login" element={<LoginScreen />} />
-      <Route path="/dashboard" element={<NurseDashboard />} />
+      <Route path="/dashboard" element={<ProtectedRoute requiredRole="nurse"><NurseDashboard /></ProtectedRoute>} />
+      <Route path="/patient" element={<ProtectedRoute requiredRole="patient"><PatientDashboard /></ProtectedRoute>} />
     </Routes>
   );
 }
 
 function LoginScreen() {
   const navigate = useNavigate();
-
-  return (
-    <>
-      <button
-        type="button"
-        className="fixed top-6 left-6 z-50 px-4 py-2 rounded-full bg-white/80 text-slate-900 font-semibold shadow-lg hover:bg-white transition"
-        onClick={() => navigate('/')}
-      >
-        Back to site
-      </button>
-      <LoginPage />
-    </>
-  );
+  const user = authService.getCurrentUser();
+  
+  // If already logged in, redirect to appropriate dashboard
+  useEffect(() => {
+    if (user) {
+      navigate(user.role === 'nurse' ? '/dashboard' : '/patient', { replace: true });
+    }
+  }, [user, navigate]);
+  
+  return <LoginPage />;
 }
 
 function AttuneHomepage() {
