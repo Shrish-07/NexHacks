@@ -1,1 +1,1 @@
-{"root":["./src/app.tsx","./src/main.tsx","./src/components/faultyterminal.d.ts","./src/lib/utils.ts","./src/pages/loginpage.tsx","./src/pages/nursedashboard.tsx","./src/types/media.d.ts"],"version":"5.9.3"}
+{"root":["./src/app.tsx","./src/main.tsx","./src/components/faultyterminal.d.ts","./src/lib/utils.ts","./src/pages/loginpage.tsx","./src/pages/nursedashboard.tsx","./src/pages/patientdashboard.tsx","./src/services/authservice.ts","./src/services/backendservice.ts","./src/services/livekitservice.ts","./src/types/media.d.ts"],"version":"5.9.3"}

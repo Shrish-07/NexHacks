@@ -33,16 +33,15 @@ class LiveKitService {
       this.room = new LivekitClient.Room({
         adaptiveStream: true,
         dynacast: true,
-        expMultiplier: 2,
       });
 
       // Set up event handlers
-      this.room.on(LivekitClient.RoomEvent.TrackSubscribed, (track, publication, participant) => {
+      this.room.on(LivekitClient.RoomEvent.TrackSubscribed, (track: any, publication: any, participant: any) => {
         console.log(`✅ Track subscribed:`, track.kind, participant.identity);
         config.onTrackSubscribed?.(track, publication, participant);
       });
 
-      this.room.on(LivekitClient.RoomEvent.TrackUnsubscribed, (track) => {
+      this.room.on(LivekitClient.RoomEvent.TrackUnsubscribed, (track: any) => {
         console.log(`❌ Track unsubscribed:`, track.kind);
         config.onTrackUnsubscribed?.(track);
       });
@@ -77,8 +76,8 @@ class LiveKitService {
     try {
       this.videoTrack = await LivekitClient.createLocalVideoTrack({
         resolution: {
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
+          width: 1280,
+          height: 720,
         },
       });
 
@@ -130,7 +129,7 @@ class LiveKitService {
     const videoElement = document.createElement('video');
     videoElement.autoplay = true;
     videoElement.muted = true;
-    videoElement.playsinline = true;
+    videoElement.playsInline = true;
 
     this.videoTrack.attach(videoElement);
     return videoElement;
@@ -157,7 +156,11 @@ class LiveKitService {
    */
   setAudioEnabled(enabled: boolean): void {
     if (this.audioTrack) {
-      this.audioTrack.muted = !enabled;
+      if (enabled) {
+        this.audioTrack.unmute();
+      } else {
+        this.audioTrack.mute();
+      }
     }
   }
 
@@ -166,7 +169,11 @@ class LiveKitService {
    */
   setVideoEnabled(enabled: boolean): void {
     if (this.videoTrack) {
-      this.videoTrack.muted = !enabled;
+      if (enabled) {
+        this.videoTrack.unmute();
+      } else {
+        this.videoTrack.mute();
+      }
     }
   }
 
@@ -218,7 +225,10 @@ class LiveKitService {
    * Check if connected
    */
   isConnected(): boolean {
-    return this.room !== null && this.room.state === LivekitClient.RoomState.Connected;
+    if (!this.room) {
+      return false;
+    }
+    return (this.room as any).isConnected === true;
   }
 }
 
