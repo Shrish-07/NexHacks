@@ -54,6 +54,15 @@ function broadcastToNurses(payload) {
 
 // ---------------- WS ----------------
 wss.on('connection', (ws) => {
+  // Send connected event immediately when client connects
+  send(ws, {
+    type: 'connected',
+    status: 'ok',
+    message: 'Backend is online and ready',
+    timestamp: new Date().toISOString(),
+  });
+  console.log('✅ New client connected, sent welcome event');
+
   ws.on('message', (raw) => {
     let data;
     try {

@@ -37,9 +37,10 @@ class BackendService {
   private httpBase: string;
   private messageHandlers: Map<string, Set<MessageHandler>> = new Map();
   private reconnectAttempts = 0;
-  private maxReconnectAttempts = 10;
+  private maxReconnectAttempts = 5;
   private reconnectDelay = 3000;
   private currentUser: User | null = null;
+  private readonly CONNECT_TIMEOUT = 10000; // 10 seconds
 
   constructor() {
     this.httpBase = this.getHttpBase();
@@ -50,6 +51,13 @@ class BackendService {
    * Get HTTP base URL
    */
   private getHttpBase(): string {
+    // Check environment variable first (set in .env.local for dev, Vercel dashboard for prod)
+    const envBackend = import.meta.env.VITE_BACKEND_URL;
+    if (envBackend) {
+      console.log('📍 Using backend from env:', envBackend);
+      return envBackend;
+    }
+
     if (window.location.hostname === 'localhost') {
       return 'http://localhost:3000';
     }
@@ -61,17 +69,35 @@ class BackendService {
    * Get WebSocket URL
    */
   private getWsUrl(): string {
-    if (window.location.hostname === 'localhost') {
-      return 'ws://localhost:3000';
-    }
-    const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
-    return `${protocol}://${window.location.host}`;
+    const httpBase = this.getHttpBase();
+    // Convert http(s) to ws(s)
+    return httpBase.replace(/^http/, 'ws');
   }
 
   /**
-   * Connect to WebSocket
+   * Connect to WebSocket with health check and timeout
    */
-  connect(user: User): Promise<void> {
+  async connect(user: User): Promise<void> {
+    // First check if backend is alive
+    try {
+      console.log('🔍 Checking backend health at:', this.httpBase);
+      const healthResponse = await Promise.race([
+        fetch(`${this.httpBase}/health`),
+        new Promise<Response>((_, reject) => 
+          setTimeout(() => reject(new Error('Health check timeout')), 5000)
+        )
+      ]);
+      
+      if (!healthResponse.ok) {
+        throw new Error(`Health check failed: ${healthResponse.status}`);
+      }
+      const health = await healthResponse.json();
+      console.log('✅ Backend is alive:', health);
+    } catch (error) {
+      console.warn('⚠️ Backend health check failed:', error instanceof Error ? error.message : error);
+      // Continue anyway - WebSocket might still work
+    }
+
     return new Promise((resolve, reject) => {
       if (this.ws && this.ws.readyState === WebSocket.OPEN) {
         resolve();
@@ -81,10 +107,22 @@ class BackendService {
       this.currentUser = user;
 
       try {
+        console.log('🔌 Attempting WebSocket connection to:', this.wsUrl);
         this.ws = new WebSocket(this.wsUrl);
+        let connectTimeout: ReturnType<typeof setTimeout>;
+
+        // Set timeout for connection
+        connectTimeout = setTimeout(() => {
+          if (this.ws?.readyState !== WebSocket.OPEN) {
+            console.error('❌ WebSocket connection timeout after', this.CONNECT_TIMEOUT / 1000, 'seconds');
+            this.ws?.close();
+            reject(new Error('Connection timeout - backend not responding'));
+          }
+        }, this.CONNECT_TIMEOUT);
 
         this.ws.onopen = () => {
-          console.log('✅ Connected to backend');
+          clearTimeout(connectTimeout);
+          console.log('✅ Connected to backend via WebSocket');
           this.reconnectAttempts = 0;
 
           if (user.role === 'patient') {
@@ -100,20 +138,25 @@ class BackendService {
         this.ws.onmessage = (event) => {
           try {
             const data = JSON.parse(event.data);
-            console.log('[WS Message]', data.type, data);
+            console.log('[WS Message]', data.type);
             this.emit(data.type, data);
           } catch (error) {
             console.error('Failed to parse message:', error);
           }
         };
 
-        this.ws.onerror = (error) => {
-          console.error('WebSocket error:', error);
-          this.emit('error', error);
-          reject(error);
+        this.ws.onerror = (event) => {
+          clearTimeout(connectTimeout);
+          const errorMsg = event instanceof Event ? 'WebSocket error' : String(event);
+          console.error('❌ WebSocket error:', errorMsg);
+          console.error('   Backend URL:', this.wsUrl);
+          console.error('   Attempt:', this.reconnectAttempts + 1, '/', this.maxReconnectAttempts);
+          this.emit('error', new Error(errorMsg));
+          reject(new Error(errorMsg));
         };
 
         this.ws.onclose = () => {
+          clearTimeout(connectTimeout);
           console.log('❌ Disconnected from backend');
           this.emit('disconnected');
           this.reconnect();
@@ -126,25 +169,28 @@ class BackendService {
   }
 
   /**
-   * Reconnect to WebSocket
+   * Reconnect to WebSocket with exponential backoff
    */
   private reconnect(): void {
     if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-      console.error('❌ Max reconnection attempts reached');
+      console.error('❌ Max reconnection attempts reached. Backend may be down.');
       this.emit('reconnect_failed');
       return;
     }
 
     this.reconnectAttempts++;
-    const delay = this.reconnectDelay * Math.pow(1.5, this.reconnectAttempts - 1);
+    // Exponential backoff: 3s, 6s, 12s, 24s, 48s (capped at ~1 min)
+    const delay = Math.min(this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1), 60000);
 
     console.log(
-      `⏳ Reconnecting... (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts}) in ${(delay / 1000).toFixed(1)}s`
+      `⏳ Reconnecting in ${(delay / 1000).toFixed(1)}s (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})...`
     );
 
     setTimeout(() => {
       if (this.currentUser) {
-        this.connect(this.currentUser);
+        this.connect(this.currentUser).catch(err => {
+          console.error('Reconnect attempt failed:', err instanceof Error ? err.message : err);
+        });
       }
     }, delay);
   }
