@@ -28,7 +28,7 @@ function ProtectedRoute({ children, requiredRole }: { children: React.ReactNode;
 export default function App() {
   return (
     <Routes>
-      <Route path="/" element={<LoginScreen />} />
+      <Route path="/" element={<AttuneHomepage />} />
       <Route path="/login" element={<LoginScreen />} />
       <Route path="/dashboard" element={<ProtectedRoute requiredRole="nurse"><NurseDashboard /></ProtectedRoute>} />
       <Route path="/patient" element={<ProtectedRoute requiredRole="patient"><PatientDashboard /></ProtectedRoute>} />
