@@ -1,178 +1,223 @@
-import { useEffect, useRef, useState } from 'react';
-import type { FormEvent } from 'react';
-import { Lock } from 'lucide-react';
-import FaultyTerminal from '@/components/FaultyTerminal';
+﻿import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { Shield, User, Lock, Smartphone } from 'lucide-react';
+import authService from '../services/authService';
+import FaultyTerminal from '../components/FaultyTerminal';
+
+type LoginMode = 'patient' | 'nurse' | 'choose';
 
 export default function LoginPage() {
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [status, setStatus] = useState<'idle' | 'success'>('idle');
-  const resetTimerRef = useRef<number | null>(null);
+  const navigate = useNavigate();
+  const [mode, setMode] = useState<LoginMode>('choose');
+  const [patientId, setPatientId] = useState('PATIENT_001');
+  const [roomNumber, setRoomNumber] = useState('305');
+  const [nurseId, setNurseId] = useState('');
+  const [nurseName, setNurseName] = useState('');
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
 
-  useEffect(() => {
-    return () => {
-      if (resetTimerRef.current) {
-        window.clearTimeout(resetTimerRef.current);
+  const demoPatients = authService.getDemoPatients();
+
+  const handlePatientLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    setLoading(true);
+
+    try {
+      const result = authService.loginPatient(patientId, roomNumber);
+      if (result.success) {
+        navigate('/patient');
+      } else {
+        setError(result.error || 'Login failed');
       }
-    };
-  }, []);
-
-  const handleSubmit = (event?: FormEvent) => {
-    event?.preventDefault();
-    console.log('Demo login accepted:', { email, password });
-    setStatus('success');
-
-    if (resetTimerRef.current) {
-      window.clearTimeout(resetTimerRef.current);
+    } catch (err: any) {
+      setError(err.message || 'An error occurred');
+    } finally {
+      setLoading(false);
     }
-    resetTimerRef.current = window.setTimeout(() => setStatus('idle'), 3500);
+  };
+
+  const handleNurseLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    setLoading(true);
+
+    try {
+      const result = authService.loginNurse(nurseId, nurseName);
+      if (result.success) {
+        navigate('/dashboard');
+      } else {
+        setError(result.error || 'Login failed');
+      }
+    } catch (err: any) {
+      setError(err.message || 'An error occurred');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
-    <div className="w-full h-screen flex items-center justify-center relative overflow-hidden">
-      {/* Shared Attune background */}
-      <div
-        className="fixed inset-0 -z-10 flex items-center justify-center pointer-events-none opacity-100"
-        aria-hidden="true"
-      >
-        <div style={{ width: '100vw', height: '100vh', position: 'relative' }}>
-          <FaultyTerminal
-            scale={1.3}
-            digitSize={2.7}
-            scanlineIntensity={0.15}
-            glitchAmount={0}
-            flickerAmount={1}
-            noiseAmp={0.15}
-            chromaticAberration={0}
-            dither={0}
-            curvature={0.2}
-            tint="#ffffff"
-            mouseReact
-            mouseStrength={0.6}
-            brightness={1}
-          />
-        </div>
-      </div>
-      <div className="absolute inset-0 -z-10 bg-slate-950/80 backdrop-blur" aria-hidden="true" />
-      
-      {/* Lanyard */}
-      <div 
-        className="absolute bg-cyan-400"
-        style={{
-          width: '50px',
-          height: '150px',
-          top: '100px',
-          left: 'calc(50% - 25px)',
-          boxShadow: '0 0 50px rgba(0, 212, 255, 0.8)'
-        }}
-      />
-      
-      {/* Clip */}
-      <div 
-        className="absolute"
-        style={{
-          width: '70px',
-          height: '40px',
-          top: '235px',
-          left: 'calc(50% - 35px)',
-          background: '#00d4ff',
-          borderRadius: '15px 15px 0 0',
-          boxShadow: '0 0 40px rgba(0, 212, 255, 0.7)'
-        }}
-      >
-        <div 
-          className="absolute bg-cyan-400 rounded-full"
-          style={{
-            width: '25px',
-            height: '25px',
-            top: '-8px',
-            left: '22.5px',
-            border: '3px solid #006680'
-          }}
+    <div className="min-h-screen bg-slate-950 text-white overflow-hidden relative flex items-center justify-center">
+      <div className="fixed inset-0 -z-10 pointer-events-none opacity-30">
+        <FaultyTerminal
+          scale={1.3}
+          digitSize={2.7}
+          scanlineIntensity={0.15}
+          glitchAmount={0}
+          flickerAmount={0.5}
+          noiseAmp={0.15}
+          chromaticAberration={0}
+          dither={0}
+          curvature={0.2}
+          tint="#ffffff"
+          mouseReact={false}
+          brightness={0.3}
         />
       </div>
 
-      {/* Badge Holder */}
-      <div 
-        className="absolute"
-        style={{
-          width: '280px',
-          height: '540px',
-          top: '280px',
-          left: 'calc(50% - 140px)',
-          background: 'linear-gradient(135deg, #00d4ff 0%, #0099cc 100%)',
-          borderRadius: '20px',
-          boxShadow: '0 0 100px rgba(0, 212, 255, 1), 0 0 150px rgba(0, 200, 255, 0.6)',
-          border: '3px solid #00e5ff'
-        }}
-      >
-        {/* White Inner Card */}
-        <div 
-          className="absolute bg-slate-800"
-          style={{
-            width: '240px',
-            height: '500px',
-            top: '20px',
-            left: '20px',
-            borderRadius: '15px',
-            border: '2px solid rgba(100, 116, 139, 0.3)'
-          }}
-        >
-          {/* Login Form Content */}
-          <div className="p-6 text-white">
-            <div className="text-center mb-6">
-              <div className="w-16 h-16 bg-cyan-500 rounded-full mx-auto mb-3 flex items-center justify-center">
-                <Lock className="w-8 h-8 text-white" />
+      <div className="relative z-10 w-full max-w-md mx-4">
+        {mode === 'choose' && (
+          <div className="space-y-6">
+            <div className="text-center">
+              <div className="flex justify-center mb-4">
+                <Shield className="w-12 h-12 text-cyan-400" />
               </div>
-              <h1 className="text-xl font-bold text-cyan-400">Secure Access</h1>
-              <p className="text-xs text-slate-400">Employee Portal</p>
+              <h1 className="text-4xl font-bold mb-2">ATTUNE</h1>
+              <p className="text-gray-400">AI Patient Monitoring System</p>
             </div>
 
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">Email</label>
-                <input
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded text-sm text-white"
-                  placeholder="you@company.com"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">Password</label>
-                <input
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded text-sm text-white"
-                  placeholder="••••••••"
-                />
-              </div>
-
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <button
-                type="submit"
-                className={`w-full py-2 rounded font-semibold text-sm text-white transition ${
-                  status === 'success'
-                    ? 'bg-emerald-500 hover:bg-emerald-500 shadow-lg shadow-emerald-500/30'
-                    : 'bg-cyan-500 hover:bg-cyan-600'
-                }`}
+                onClick={() => setMode('patient')}
+                className="bg-blue-600 hover:bg-blue-700 transition p-6 rounded-lg text-center space-y-3"
               >
-                {status === 'success' ? 'Access Granted' : 'Sign In'}
+                <Smartphone className="w-8 h-8 mx-auto" />
+                <div>
+                  <p className="font-bold text-lg">Patient</p>
+                  <p className="text-sm text-blue-200">Login as patient</p>
+                </div>
               </button>
 
-              <p
-                className={`text-center text-xs font-semibold tracking-wide transition ${
-                  status === 'success' ? 'text-emerald-300 opacity-100' : 'text-slate-500 opacity-0'
-                }`}
-                aria-live="polite"
+              <button
+                onClick={() => setMode('nurse')}
+                className="bg-cyan-600 hover:bg-cyan-700 transition p-6 rounded-lg text-center space-y-3"
               >
-                Demo mode active — any credentials unlock the badge.
-              </p>
-            </form>
+                <User className="w-8 h-8 mx-auto" />
+                <div>
+                  <p className="font-bold text-lg">Nurse</p>
+                  <p className="text-sm text-cyan-200">Login as nurse</p>
+                </div>
+              </button>
+            </div>
           </div>
-        </div>
+        )}
+
+        {mode === 'patient' && (
+          <form onSubmit={handlePatientLogin} className="space-y-4 bg-slate-900/50 backdrop-blur p-6 rounded-lg border border-white/10">
+            <div className="flex items-center gap-2 mb-6">
+              <button
+                type="button"
+                onClick={() => setMode('choose')}
+                className="text-gray-400 hover:text-white"
+              >
+                 Back
+              </button>
+              <h2 className="text-2xl font-bold">Patient Login</h2>
+            </div>
+
+            {error && (
+              <div className="bg-red-500/10 border border-red-500 rounded p-3 text-red-400 text-sm">
+                {error}
+              </div>
+            )}
+
+            <div>
+              <label className="block text-sm font-medium mb-2">Select Patient</label>
+              <select
+                value={patientId}
+                onChange={(e) => setPatientId(e.target.value)}
+                className="w-full bg-slate-800 border border-white/20 rounded p-2 text-white"
+              >
+                {demoPatients.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name} (Room {p.room})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium mb-2">Room Number</label>
+              <input
+                type="text"
+                value={roomNumber}
+                onChange={(e) => setRoomNumber(e.target.value)}
+                className="w-full bg-slate-800 border border-white/20 rounded p-2 text-white"
+                placeholder="Room #"
+              />
+            </div>
+
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 transition p-2 rounded font-bold"
+            >
+              {loading ? 'Logging in...' : 'Login as Patient'}
+            </button>
+          </form>
+        )}
+
+        {mode === 'nurse' && (
+          <form onSubmit={handleNurseLogin} className="space-y-4 bg-slate-900/50 backdrop-blur p-6 rounded-lg border border-white/10">
+            <div className="flex items-center gap-2 mb-6">
+              <button
+                type="button"
+                onClick={() => setMode('choose')}
+                className="text-gray-400 hover:text-white"
+              >
+                 Back
+              </button>
+              <h2 className="text-2xl font-bold">Nurse Login</h2>
+            </div>
+
+            {error && (
+              <div className="bg-red-500/10 border border-red-500 rounded p-3 text-red-400 text-sm">
+                {error}
+              </div>
+            )}
+
+            <div>
+              <label className="block text-sm font-medium mb-2">Nurse ID</label>
+              <input
+                type="text"
+                value={nurseId}
+                onChange={(e) => setNurseId(e.target.value)}
+                className="w-full bg-slate-800 border border-white/20 rounded p-2 text-white"
+                placeholder="NURSE_001"
+                required
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium mb-2">Full Name (optional)</label>
+              <input
+                type="text"
+                value={nurseName}
+                onChange={(e) => setNurseName(e.target.value)}
+                className="w-full bg-slate-800 border border-white/20 rounded p-2 text-white"
+                placeholder="Your name"
+              />
+            </div>
+
+            <button
+              type="submit"
+              disabled={loading || !nurseId}
+              className="w-full bg-cyan-600 hover:bg-cyan-700 disabled:bg-gray-600 transition p-2 rounded font-bold"
+            >
+              {loading ? 'Logging in...' : 'Login as Nurse'}
+            </button>
+          </form>
+        )}
       </div>
     </div>
   );
