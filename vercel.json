@@ -1,0 +1,17 @@
+{
+  "buildCommand": "cd frontend && npm install && npm run build",
+  "outputDirectory": "frontend/dist",
+  "root": "frontend",
+  "github": {
+    "silent": true
+  },
+  "routes": [
+    {
+      "src": "/(.*)",
+      "destination": "/index.html"
+    }
+  ],
+  "env": {
+    "VITE_BACKEND_URL": "@vite_backend_url"
+  }
+}
