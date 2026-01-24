@@ -70,7 +70,7 @@ export default function NurseDashboard() {
           try {
             const alertMessage = `ALERT: ${alert.patientName} in room ${alert.roomNumber}. ${alert.condition}. ${alert.description}`;
             console.log('🎤 [NURSE] Generating TTS for:', alertMessage);
-            const response = await fetch('http://localhost:3000/api/alert-audio', {
+            const response = await fetch(`${backendService.getHttpBase()}/api/alert-audio`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ text: alertMessage }),

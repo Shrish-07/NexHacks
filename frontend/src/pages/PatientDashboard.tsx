@@ -77,7 +77,8 @@ export default function PatientDashboard() {
         // ========== LIVEKIT CONNECTION FOR AGENT MONITORING ==========
         try {
           console.log('🎤 [PATIENT] Getting LiveKit token...');
-          const tokenResponse = await fetch('http://localhost:3000/api/livekit-token', {
+          const backendUrl = backendService.getHttpBase();
+          const tokenResponse = await fetch(`${backendUrl}/api/livekit-token`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -388,7 +389,7 @@ export default function PatientDashboard() {
             <button
               onClick={async () => {
                 try {
-                  const response = await fetch('http://localhost:3000/alert', {
+                  const response = await fetch(`${backendService.getHttpBase()}/alert`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
