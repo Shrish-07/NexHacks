@@ -102,12 +102,21 @@ export default function PatientDashboard() {
             livekitRoomRef.current = room;
             console.log('✅ [PATIENT] Connected to LiveKit room');
             
-            // Publish audio for agent monitoring
+            // Publish audio for agent monitoring & distress detection
             try {
               const audioTrack = await room.localParticipant.setMicrophoneEnabled(true);
               console.log('🎤 [PATIENT] Microphone enabled for agent monitoring');
             } catch (audioError) {
               console.log('⚠️  [PATIENT] Could not enable microphone:', audioError);
+            }
+
+            // Publish video for Overshoot motion/fall detection
+            try {
+              console.log('📹 [PATIENT] Enabling camera for motion detection...');
+              const videoTrack = await room.localParticipant.setCameraEnabled(true);
+              console.log('✅ [PATIENT] Camera enabled - Overshoot can now detect motion, falls, and inactivity');
+            } catch (cameraError) {
+              console.log('⚠️  [PATIENT] Could not enable camera:', cameraError);
             }
           } else {
             console.log('⚠️  [PATIENT] Failed to get LiveKit token:', tokenResponse.status);

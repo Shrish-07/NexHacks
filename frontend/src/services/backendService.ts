@@ -50,7 +50,7 @@ class BackendService {
   /**
    * Get HTTP base URL
    */
-  private getHttpBase(): string {
+  getHttpBase(): string {
     // Check environment variable first (set in Vercel dashboard for prod)
     const envBackend = import.meta.env.VITE_BACKEND_URL;
     if (envBackend) {
