@@ -837,6 +837,80 @@ app.get('/health', (_req, res) => {
   });
 });
 
+// ============ MOTION DETECTION ENDPOINT ============
+// Receives motion/vision detection from agent.py (Overshoot API results)
+app.post('/api/motion-detection', (req, res) => {
+  const {
+    roomName,
+    patientId,
+    detectionType,
+    confidence,
+    description,
+    severity = 'high',
+  } = req.body;
+
+  if (!roomName || !patientId || !detectionType) {
+    return res.status(400).json({
+      error: 'roomName, patientId, and detectionType are required',
+    });
+  }
+
+  console.log(`[MOTION] ${detectionType} (${(confidence * 100).toFixed(1)}%) - Patient: ${patientId}`);
+
+  // Find patient in system
+  let patientName = 'Unknown Patient';
+  let roomNumber = 'Unknown Room';
+
+  for (const [pId, ws] of patients) {
+    if (pId === patientId) {
+      patientName = ws.patientName || 'Unknown Patient';
+      roomNumber = ws.roomNumber || 'Unknown Room';
+      break;
+    }
+  }
+
+  // Create motion detection alert
+  const alert = {
+    id: `alert_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+    patientId,
+    patientName,
+    roomNumber,
+    condition: detectionType.toUpperCase(),
+    confidence,
+    description:
+      description ||
+      `Motion Detection: ${detectionType} detected (${(confidence * 100).toFixed(1)}% confidence)`,
+    urgency: severity,
+    source: 'motion',
+    timestamp: new Date().toISOString(),
+    acknowledged: false,
+  };
+
+  // Store alert
+  alerts.push(alert);
+  if (alerts.length > MAX_ALERT_HISTORY) {
+    alerts.shift();
+  }
+
+  // Update metrics
+  detection_metrics.detections.motion_alerts++;
+  detection_metrics.detections.total_alerts++;
+
+  // Broadcast to all nurses
+  broadcastToNurses({
+    type: 'new_alert',
+    alert,
+  });
+
+  console.log(`📢 Motion Alert sent to nurses: ${detectionType} | Room ${roomNumber}`);
+
+  res.status(200).json({
+    success: true,
+    alertId: alert.id,
+    message: `Motion detection alert: ${detectionType}`,
+  });
+});
+
 server.listen(PORT, () => {
   console.log(`✅ Server running on port ${PORT}`);
   console.log(`✅ WebSocket endpoint: ws://localhost:${PORT}`);
