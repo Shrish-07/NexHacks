@@ -1,0 +1,40 @@
+services:
+  # Backend Service (existing)
+  - type: web
+    name: nexhacks-backend
+    env: python
+    buildCommand: npm install --prefix backend && npm run build --prefix backend
+    startCommand: npm start --prefix backend
+    plan: standard
+    envVars:
+      - key: LIVEKIT_URL
+        sync: false
+      - key: LIVEKIT_API_KEY
+        sync: false
+      - key: LIVEKIT_API_SECRET
+        sync: false
+      - key: OVERSHOOT_API_KEY
+        sync: false
+      - key: ELEVENLABS_API_KEY
+        sync: false
+
+  # Agent Service (NEW - Voice & Motion Detection)
+  - type: background
+    name: nexhacks-agent
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: python agent.py
+    plan: standard
+    envVars:
+      - key: LIVEKIT_URL
+        sync: false
+      - key: LIVEKIT_API_KEY
+        sync: false
+      - key: LIVEKIT_API_SECRET
+        sync: false
+      - key: OVERSHOOT_API_KEY
+        sync: false
+      - key: BACKEND_URL
+        value: https://nexhacks-backend.onrender.com
+      - key: LOG_LEVEL
+        value: INFO
