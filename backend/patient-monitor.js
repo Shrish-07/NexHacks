@@ -25,6 +25,48 @@ const LIVEKIT_URL = process.env.LIVEKIT_URL;
 const LIVEKIT_API_KEY = process.env.LIVEKIT_API_KEY;
 const LIVEKIT_API_SECRET = process.env.LIVEKIT_API_SECRET;
 
+// ============ DETECTION CONFIGURATION ============
+const DETECTION_CONFIG = {
+  distress_voice: 1.0,
+  fall: 0.80,
+  bed_exit: 0.75,
+  inactivity: 0.85,
+  frame_skip: 5,
+  cooldown_seconds: 30,
+  vitals_thresholds: {
+    heart_rate_low: 40,
+    heart_rate_high: 130,
+    spo2_low: 92,
+    respiration_high: 25,
+    vitals_unchanged_minutes: 10,
+  },
+};
+
+// ============ DETECTION METRICS ============
+const detection_metrics = {
+  agent_health: {
+    status: 'unknown',
+    last_heartbeat: null,
+    uptime_seconds: 0,
+    rooms_monitored: 0,
+  },
+  detections: {
+    voice_alerts: 0,
+    motion_alerts: 0,
+    vitals_alerts: 0,
+    total_alerts: 0,
+  },
+  performance: {
+    avg_latency_ms: 0,
+    false_positive_count: 0,
+    api_failures: 0,
+  },
+  start_time: new Date(),
+};
+
+// ============ VITALS STORAGE ============
+const patient_vitals = new Map(); // patientId -> { latest vitals + history }
+
 app.use(cors());
 app.use(express.json());
 
@@ -36,8 +78,9 @@ console.log('LIVEKIT_API_SECRET:', LIVEKIT_API_SECRET ? '✅ Set' : '❌ Missing
 console.log('OVERSHOOT_API_KEY:', process.env.OVERSHOOT_API_KEY ? '✅ Set' : '❌ Missing');
 console.log('ELEVENLABS_API_KEY:', ELEVENLABS_API_KEY ? '✅ Set' : '❌ Missing');
 console.log('===================================');
+console.log('📊 Detection Config:', JSON.stringify(DETECTION_CONFIG, null, 2));
 
-// ---------------- STATE ----------------
+// ============ STATE ----------------
 const patients = new Map(); // patientId -> ws
 const nurses = new Map();   // nurseId -> ws
 const alerts = []; // Store alert history
@@ -552,15 +595,245 @@ app.post('/api/check-overshoot', async (req, res) => {
   }
 });
 
-app.get('/health', (_req, res) => {
+// ============ DETECTION SYSTEM ENDPOINTS ============
+
+// Agent Health Check
+app.get('/api/agent-health', (_req, res) => {
+  const uptime_seconds = Math.floor((new Date() - detection_metrics.start_time) / 1000);
   res.json({
     status: 'ok',
-    patients: patients.size,
-    nurses: nurses.size,
-    alerts: alerts.length,
-    livekit: {
-      configured: !!(LIVEKIT_URL && LIVEKIT_API_KEY && LIVEKIT_API_SECRET)
+    agent: {
+      status: detection_metrics.agent_health.status,
+      last_heartbeat: detection_metrics.agent_health.last_heartbeat,
+      uptime_seconds: uptime_seconds,
+      rooms_monitored: patients.size,
+    },
+    detections: detection_metrics.detections,
+    performance: detection_metrics.performance,
+    timestamp: new Date().toISOString(),
+  });
+});
+
+// Get Detection Configuration
+app.get('/api/detection-config', (_req, res) => {
+  res.json({
+    config: DETECTION_CONFIG,
+    timestamp: new Date().toISOString(),
+  });
+});
+
+// Update Detection Configuration (Admin)
+app.post('/api/detection-config', (req, res) => {
+  const { key, value } = req.body;
+  
+  if (!key || value === undefined) {
+    return res.status(400).json({ error: 'key and value required' });
+  }
+  
+  // Update nested values
+  const keys = key.split('.');
+  let target = DETECTION_CONFIG;
+  for (let i = 0; i < keys.length - 1; i++) {
+    if (!target[keys[i]]) target[keys[i]] = {};
+    target = target[keys[i]];
+  }
+  
+  const oldValue = target[keys[keys.length - 1]];
+  target[keys[keys.length - 1]] = value;
+  
+  console.log(`⚙️  [CONFIG] Updated ${key}: ${oldValue} → ${value}`);
+  
+  res.json({
+    success: true,
+    changed: {
+      key,
+      old_value: oldValue,
+      new_value: value,
+    },
+  });
+});
+
+// Store Patient Vitals
+app.post('/api/vitals', (req, res) => {
+  const { patientId, heartRate, spO2, respiration, temperature, roomNumber } = req.body;
+  
+  if (!patientId) {
+    return res.status(400).json({ error: 'patientId required' });
+  }
+  
+  // Initialize vitals storage for patient
+  if (!patient_vitals.has(patientId)) {
+    patient_vitals.set(patientId, {
+      latest: null,
+      history: [],
+      anomalies: [],
+    });
+  }
+  
+  const vitals = {
+    heartRate: heartRate || 72,
+    spO2: spO2 || 98,
+    respiration: respiration || 16,
+    temperature: temperature || 98.6,
+    timestamp: new Date().toISOString(),
+  };
+  
+  const patient_data = patient_vitals.get(patientId);
+  patient_data.latest = vitals;
+  
+  // Keep last 100 readings
+  patient_data.history.push(vitals);
+  if (patient_data.history.length > 100) {
+    patient_data.history.shift();
+  }
+  
+  // Check for anomalies
+  const anomalies = [];
+  const thresh = DETECTION_CONFIG.vitals_thresholds;
+  
+  if (heartRate < thresh.heart_rate_low) {
+    anomalies.push(`Heart rate low: ${heartRate}`);
+  }
+  if (heartRate > thresh.heart_rate_high) {
+    anomalies.push(`Heart rate high: ${heartRate}`);
+  }
+  if (spO2 && spO2 < thresh.spo2_low) {
+    anomalies.push(`SpO2 low: ${spO2}%`);
+  }
+  if (respiration > thresh.respiration_high) {
+    anomalies.push(`Respiration high: ${respiration}`);
+  }
+  
+  // Send vitals anomaly alert if detected
+  if (anomalies.length > 0) {
+    console.log(`⚠️  [VITALS] Anomalies detected for ${patientId}:`, anomalies);
+    
+    const alert = {
+      id: `vitals_alert_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      patientId,
+      patientName: 'Patient',
+      roomNumber: roomNumber || 'unknown',
+      condition: 'VITALS_ANOMALY',
+      confidence: 0.9,
+      description: anomalies.join('; '),
+      urgency: 'high',
+      source: 'vitals',
+      vitals: vitals,
+      timestamp: new Date().toISOString(),
+      acknowledged: false,
+    };
+    
+    alerts.push(alert);
+    if (alerts.length > MAX_ALERT_HISTORY) {
+      alerts.shift();
     }
+    
+    broadcastToNurses({
+      type: 'new_alert',
+      alert,
+    });
+    
+    detection_metrics.detections.vitals_alerts++;
+    detection_metrics.detections.total_alerts++;
+    
+    patient_data.anomalies.push(alert);
+  }
+  
+  res.json({
+    success: true,
+    vitals,
+    anomalies_detected: anomalies.length > 0,
+    anomalies,
+  });
+});
+
+// Get Patient Vitals History
+app.get('/api/vitals/:patientId', (req, res) => {
+  const { patientId } = req.params;
+  const data = patient_vitals.get(patientId);
+  
+  if (!data) {
+    return res.status(404).json({ error: 'Patient vitals not found' });
+  }
+  
+  res.json({
+    patientId,
+    latest: data.latest,
+    history_count: data.history.length,
+    recent_history: data.history.slice(-10),
+    anomalies: data.anomalies.slice(-5),
+  });
+});
+
+// Get Detection Metrics
+app.get('/api/detection-metrics', (_req, res) => {
+  const uptime_seconds = Math.floor((new Date() - detection_metrics.start_time) / 1000);
+  
+  res.json({
+    uptime_seconds,
+    metrics: detection_metrics,
+    patients_monitored: patients.size,
+    nurses_connected: nurses.size,
+    total_alerts: alerts.length,
+    timestamp: new Date().toISOString(),
+  });
+});
+
+// Alert Deduplication Helper (called internally)
+function check_alert_dedup(alert_key, cooldown_ms = 30000) {
+  const now = Date.now();
+  if (!check_alert_dedup.cache) check_alert_dedup.cache = {};
+  
+  const last = check_alert_dedup.cache[alert_key];
+  if (!last) {
+    check_alert_dedup.cache[alert_key] = now;
+    return true;
+  }
+  
+  if (now - last >= cooldown_ms) {
+    check_alert_dedup.cache[alert_key] = now;
+    return true;
+  }
+  
+  return false;
+}
+
+app.get('/health', (_req, res) => {
+  const uptime_seconds = Math.floor((new Date() - detection_metrics.start_time) / 1000);
+  
+  res.json({
+    status: 'ok',
+    server: {
+      uptime_seconds,
+      port: PORT,
+      timestamp: new Date().toISOString(),
+    },
+    connections: {
+      patients: patients.size,
+      nurses: nurses.size,
+      total_connections: patients.size + nurses.size,
+    },
+    alerts: {
+      total: alerts.length,
+      history_limit: MAX_ALERT_HISTORY,
+      recent: alerts.slice(-5),
+    },
+    services: {
+      livekit: {
+        configured: !!(LIVEKIT_URL && LIVEKIT_API_KEY && LIVEKIT_API_SECRET),
+        url: LIVEKIT_URL ? 'Set' : 'Missing',
+      },
+      elevenlabs: {
+        configured: !!ELEVENLABS_API_KEY,
+        key: ELEVENLABS_API_KEY ? 'Set' : 'Missing',
+      },
+      overshoot: {
+        configured: !!process.env.OVERSHOOT_API_KEY,
+        key: process.env.OVERSHOOT_API_KEY ? 'Set' : 'Missing',
+        url: OVERSHOOT_API_URL,
+      },
+    },
+    detection: detection_metrics,
   });
 });
 
