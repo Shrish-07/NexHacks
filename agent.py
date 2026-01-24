@@ -280,15 +280,34 @@ class PatientMonitorAgent(Agent):
                         )
                 
                 # ============ MOTION PROCESSING ============
-                # Send video frame to Overshoot every N frames
+                # Analyze frames for motion every N frames
                 if frame_count % DETECTION_CONFIG['frame_skip'] == 0 and OVERSHOOT_API_KEY:
                     try:
-                        # Get video tracks from session
+                        # Get video frame from participants
                         for participant in session.participants.values():
-                            for track_publication in participant.video_tracks:
-                                # This is where video frame would be captured
-                                # For now, we send a marker that motion detection is active
-                                log_info(room, f"📹 Frame {frame_count}: Motion detection active")
+                            if hasattr(participant, 'video_tracks') and participant.video_tracks:
+                                for track_pub in participant.video_tracks:
+                                    try:
+                                        # Access the video track
+                                        track = track_pub.track
+                                        if track and hasattr(track, 'get_frames'):
+                                            # Get the latest frame
+                                            async for video_frame in track.get_frames():
+                                                # Convert frame to bytes
+                                                if hasattr(video_frame, 'data'):
+                                                    frame_bytes = video_frame.data
+                                                    # Send to Overshoot for analysis
+                                                    motion_results = await analyze_motion_with_overshoot(
+                                                        frame_bytes, room, patient_id
+                                                    )
+                                                    # Process and send alerts
+                                                    if motion_results:
+                                                        await send_motion_detection(
+                                                            room, patient_id, motion_results
+                                                        )
+                                                break  # Process only first frame
+                                    except Exception as frame_err:
+                                        log_debug(room, f"Frame access error: {str(frame_err)}")
                     except Exception as e:
                         log_warn(room, f"Motion processing error: {str(e)}")
         
