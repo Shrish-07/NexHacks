@@ -15,4 +15,4 @@ openai
 rich
 twilio
 flask
-asyncio
+asynciohttpx
