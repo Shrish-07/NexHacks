@@ -9,6 +9,7 @@ type ConnectionState = 'connecting' | 'connected' | 'disconnected' | 'error';
 
 const DEFAULT_ICE_SERVERS: RTCIceServer[] = [
   { urls: ['stun:stun.l.google.com:19302'] },
+  { urls: ['stun:stun1.l.google.com:19302'] },
   {
     urls: [
       'turn:openrelay.metered.ca:80?transport=udp',
@@ -161,7 +162,7 @@ export default function PatientDashboard() {
   // Handle nurse requesting video stream
   const handleStreamRequest = async (data: any) => {
     try {
-      console.log('Nurse requesting stream, getting camera...');
+      console.log('🎥 Nurse requesting stream, getting camera...');
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
           width: { ideal: 1280 },
@@ -170,10 +171,18 @@ export default function PatientDashboard() {
         },
         audio: true,
       });
+      
+      console.log('✅ Got media stream:', {
+        videoTracks: stream.getVideoTracks().length,
+        audioTracks: stream.getAudioTracks().length,
+        streamId: stream.id,
+      });
+      
       localStreamRef.current = stream;
 
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
+        console.log('📺 Video element updated with stream');
       }
 
       // Create peer connection
@@ -182,11 +191,17 @@ export default function PatientDashboard() {
       console.log('🔌 RTCPeerConnection created');
 
       // Add tracks to peer connection
+      const tracksAdded: string[] = [];
       stream.getTracks().forEach((track) => {
-        console.log('📌 Adding track to peer connection:', track.kind);
+        console.log('📌 Adding track to peer connection:', {
+          kind: track.kind,
+          enabled: track.enabled,
+          id: track.id,
+        });
         pc.addTrack(track, stream);
+        tracksAdded.push(track.kind);
       });
-      console.log('📡 All tracks added to peer connection');
+      console.log('📡 All tracks added to peer connection:', tracksAdded);
 
       // Monitor connection state changes
       pc.onconnectionstatechange = () => {
