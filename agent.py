@@ -3,7 +3,8 @@ import os
 import httpx
 from livekit.agents import Agent, AgentSession, JobContext, WorkerOptions, cli
 
-BACKEND_ALERT_URL = "http://127.0.0.1:3000/alert"
+# Backend URL - use environment variable or default to localhost for development
+BACKEND_ALERT_URL = os.getenv('BACKEND_URL', 'http://127.0.0.1:3000') + '/alert'
 
 DISTRESS_KEYWORDS = [
     "help",
