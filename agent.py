@@ -283,31 +283,54 @@ class PatientMonitorAgent(Agent):
                 # Analyze frames for motion every N frames
                 if frame_count % DETECTION_CONFIG['frame_skip'] == 0 and OVERSHOOT_API_KEY:
                     try:
+                        log_debug(room, f"📹 Processing frame {frame_count}")
                         # Get video frame from participants
                         for participant in session.participants.values():
-                            if hasattr(participant, 'video_tracks') and participant.video_tracks:
-                                for track_pub in participant.video_tracks:
-                                    try:
-                                        # Access the video track
-                                        track = track_pub.track
-                                        if track and hasattr(track, 'get_frames'):
-                                            # Get the latest frame
-                                            async for video_frame in track.get_frames():
-                                                # Convert frame to bytes
-                                                if hasattr(video_frame, 'data'):
+                            # Check if participant has video tracks
+                            if not hasattr(participant, 'video_tracks'):
+                                continue
+                            
+                            video_tracks = participant.video_tracks
+                            if not video_tracks:
+                                continue
+                            
+                            for track_pub in video_tracks:
+                                try:
+                                    # Get the actual video track
+                                    if not hasattr(track_pub, 'track'):
+                                        continue
+                                    
+                                    track = track_pub.track
+                                    if not track:
+                                        continue
+                                    
+                                    # Try to get frames from the track
+                                    if hasattr(track, 'get_frames'):
+                                        frame_generator = track.get_frames()
+                                        async for video_frame in frame_generator:
+                                            try:
+                                                # Extract frame data
+                                                if hasattr(video_frame, 'data') and video_frame.data:
                                                     frame_bytes = video_frame.data
+                                                    log_debug(room, f"📹 Captured frame: {len(frame_bytes)} bytes")
+                                                    
                                                     # Send to Overshoot for analysis
                                                     motion_results = await analyze_motion_with_overshoot(
                                                         frame_bytes, room, patient_id
                                                     )
-                                                    # Process and send alerts
+                                                    
+                                                    # Process and send alerts if detections found
                                                     if motion_results:
                                                         await send_motion_detection(
                                                             room, patient_id, motion_results
                                                         )
-                                                break  # Process only first frame
-                                    except Exception as frame_err:
-                                        log_debug(room, f"Frame access error: {str(frame_err)}")
+                                                break  # Process only first available frame
+                                            except Exception as frame_err:
+                                                log_debug(room, f"Frame processing error: {str(frame_err)}")
+                                                continue
+                                except Exception as track_err:
+                                    log_debug(room, f"Track access error: {str(track_err)}")
+                                    continue
                     except Exception as e:
                         log_warn(room, f"Motion processing error: {str(e)}")
         
