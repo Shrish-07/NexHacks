@@ -51,7 +51,7 @@ class BackendService {
    * Get HTTP base URL
    */
   private getHttpBase(): string {
-    // Check environment variable first (set in .env.local for dev, Vercel dashboard for prod)
+    // Check environment variable first (set in Vercel dashboard for prod)
     const envBackend = import.meta.env.VITE_BACKEND_URL;
     if (envBackend) {
       console.log('📍 Using backend from env:', envBackend);
@@ -61,8 +61,13 @@ class BackendService {
     if (window.location.hostname === 'localhost') {
       return 'http://localhost:3000';
     }
+    
+    // For production: Default to same domain (but can be overridden by env var above)
+    // If backend is on different domain (Render), MUST set VITE_BACKEND_URL in Vercel
     const protocol = window.location.protocol === 'https:' ? 'https' : 'http';
-    return `${protocol}://${window.location.host}`;
+    const backendUrl = `${protocol}://${window.location.host}`;
+    console.log('📍 Backend URL not in env, trying same domain:', backendUrl);
+    return backendUrl;
   }
 
   /**
